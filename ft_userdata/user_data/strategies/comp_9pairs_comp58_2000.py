@@ -1,0 +1,80 @@
+# pragma pylint: disable=missing-docstring, invalid-name, pointless-string-statement
+from datetime import datetime
+from typing import Optional
+from freqtrade.persistence import Trade
+from freqtrade.strategy import IStrategy, informative
+import talib.abstract as ta
+from pandas import DataFrame
+
+class comp_9pairs_comp58_2000(IStrategy):
+    INTERFACE_VERSION = 3
+    timeframe = "5m"
+    can_short = False
+
+    stoploss = -0.20
+    trailing_stop = False
+    use_custom_stoploss = False
+
+    minimal_roi = {
+        "0": 0.44,
+        "15": 0.24,
+        "30": 0.12,
+    }
+    startup_candle_count = 150
+
+    def leverage(self, pair: str, current_time, current_rate: float, proposed_leverage: float, max_leverage: float, entry_tag, side: str, **kwargs) -> float:
+        return min(12.0, max_leverage) if max_leverage > 1.0 else 12.0
+
+    @property
+    def protections(self):
+        return [
+            {
+                "method": "MaxDrawdown",
+                "lookback_period_candles": 96,
+                "trade_limit": 6,
+                "stop_duration_candles": 24,
+                "max_allowed_drawdown": 0.35,
+            }
+        ]
+
+    @informative("4h")
+    def populate_indicators_4h(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
+        dataframe["ema50"] = ta.EMA(dataframe, timeperiod=50)
+        return dataframe
+
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
+        dataframe["ema50"] = ta.EMA(dataframe, timeperiod=50)
+        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+        dataframe["vol_ma"] = dataframe["volume"].rolling(20).mean()
+
+        boll = ta.BBANDS(dataframe, timeperiod=20, nbdevup=1.8, nbdevdn=1.8)
+        dataframe["bb_upper"] = boll["upperband"]
+        dataframe["bb_middle"] = boll["middleband"]
+        dataframe["bb_lower"] = boll["lowerband"]
+
+        return dataframe
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[:, "enter_long"] = 0
+        dataframe.loc[:, "enter_short"] = 0
+        dataframe.loc[:, "enter_tag"] = ""
+
+        htf_4h_bull = dataframe["close_4h"] > dataframe["ema20_4h"]
+
+        breakout = (dataframe["close"] > dataframe["bb_upper"]) & (dataframe["close"].shift(1) <= dataframe["bb_upper"].shift(1))
+        vol_surge = dataframe["volume"] > dataframe["vol_ma"] * 1.2
+        rsi_ok = (dataframe["rsi"] > 52) & (dataframe["rsi"] < 70)
+
+        long_cond = breakout & vol_surge & rsi_ok & htf_4h_bull
+
+        dataframe.loc[long_cond, "enter_long"] = 1
+        dataframe.loc[long_cond, "enter_tag"] = "bb_breakout_scalp"
+
+        return dataframe
+
+    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[:, "exit_long"] = 0
+        dataframe.loc[:, "exit_short"] = 0
+        return dataframe

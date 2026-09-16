@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.cache/
+
+# Private Secrets & Configs
+*.secret
+*private.json
+.env
+
+# Large data files & sqlite DBs
+*.feather
+*.sqlite
+*.zip
+*.log
+.system_generated/
