@@ -175,7 +175,7 @@ def format_status_message(state: RuntimeState, title: str = "WEEX SCALPER STATUS
     # Query live open trades directly from Freqtrade API
     open_trades_list = []
     try:
-        r = requests.get(f"{FT_API_URL}/status", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(2, 3))
+        r = requests.get(f"{FT_API_URL}/status", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(3, 10))
         if r.status_code == 200:
             open_trades_list = r.json()
     except Exception as exc:
@@ -232,7 +232,8 @@ def format_status_message(state: RuntimeState, title: str = "WEEX SCALPER STATUS
 • <b>Exchange:</b> WEEX (Futures {state.leverage:.0f}x)
 • <b>Modus:</b> {mode_str} | <b>Strategie:</b> 5m Scalper
 • <b>Saldo:</b> <code>${state.equity_usdt:.2f} USDT</code> (Vrij: <code>${state.free_usdt:.2f} USDT</code>)
-• <b>Stake:</b> <code>${state.stake_usdt:.2f} USDT</code> ({state.leverage:.0f}x Isolated)
+• <b>Stake (58% Compounding):</b> <code>${state.stake_usdt:.2f} USDT</code> ({state.leverage:.0f}x Isolated)
+• <b>Max Posities:</b> 2 gelijktijdig (Dynamische Marge)
 
 <b>📅 RESULTAAT VANDAAG ({today_disp}):</b>
 • <b>Gerealiseerde Winst:</b> {today_pnl_str}
@@ -275,7 +276,7 @@ def handle_start_command() -> str:
 
     # If valid, trigger Freqtrade start
     try:
-        r = requests.post(f"{FT_API_URL}/start", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(2, 4))
+        r = requests.post(f"{FT_API_URL}/start", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(3, 10))
         if r.status_code == 200:
             logger.info("Freqtrade trading loop started via API")
             return format_status_message(state, title="BOT GESTART (Config Geverifieerd)")
@@ -288,7 +289,7 @@ def handle_start_command() -> str:
 
 def handle_stop_command() -> str:
     try:
-        r = requests.post(f"{FT_API_URL}/stop", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(2, 4))
+        r = requests.post(f"{FT_API_URL}/stop", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(3, 10))
         return "⏸️ <b>Trading Loop Gepauzeerd (/stop)</b>\nGeen nieuwe entries worden geplaatst."
     except Exception as exc:
         return f"❌ Fout bij stoppen: {exc}"
@@ -296,7 +297,7 @@ def handle_stop_command() -> str:
 
 def handle_kill_command() -> str:
     try:
-        r = requests.post(f"{FT_API_URL}/forceexit", auth=FT_AUTH, json={}, headers=HTTP_HEADERS, timeout=(2, 4))
+        r = requests.post(f"{FT_API_URL}/forceexit", auth=FT_AUTH, json={}, headers=HTTP_HEADERS, timeout=(3, 10))
         return (
             "🚨 <b>NOODSTOP UITGEVOERD (/kill)</b>\n"
             "Alle openstaande orders en posities worden gesloten.\n"
@@ -309,7 +310,7 @@ def handle_kill_command() -> str:
 def handle_balance_command() -> str:
     state = sync_runtime_state_with_exchange()
     try:
-        r = requests.get(f"{FT_API_URL}/balance", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(2, 3))
+        r = requests.get(f"{FT_API_URL}/balance", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(3, 10))
         if r.status_code == 200:
             bal_data = r.json()
             total = bal_data.get("total", state.equity_usdt)
@@ -411,7 +412,7 @@ def handle_daily_command() -> str:
     open_pnl = 0.0
     open_info_str = "Geen open posities"
     try:
-        r = requests.get(f"{FT_API_URL}/status", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(2, 3))
+        r = requests.get(f"{FT_API_URL}/status", auth=FT_AUTH, headers=HTTP_HEADERS, timeout=(3, 10))
         if r.status_code == 200:
             open_trades = r.json()
             if open_trades:
@@ -492,7 +493,7 @@ def handle_config_command() -> str:
 • <code>AVAX/USDT:USDT</code> (Avalanche Perpetual)
 
 <b>🛡️ RISICOBEHEER & DOELEN:</b>
-• <b>Stoploss:</b> <code>-20.0% ROE</code> (-1,67% koersdaling)
+• <b>Stoploss:</b> <code>-50.0% ROE</code> (-4,17% koersdaling)
 • <b>Take-Profit Direct (Pump):</b> <code>+44.0% ROE</code> (+3,67% koers)
 • <b>Take-Profit na 15 min:</b> <code>+24.0% ROE</code> (+2,00% koers)
 • <b>Take-Profit na 30 min:</b> <code>+12.0% ROE</code> (+1,00% koers)
@@ -565,7 +566,7 @@ def trade_monitor_loop() -> None:
                             f"• <b>Inzet (Stake):</b> <code>${stake:.2f} USDT</code>\n"
                             f"• <b>Totale Positie:</b> <code>${stake * lev:.2f} USDT</code>\n"
                             f"• <b>Strategie:</b> 5m BB Squeeze Breakout 🎯\n\n"
-                            f"<i>De bot bewaakt automatisch de Stoploss (-20%) en Take-Profit ladder (+44%/+24%/+12%).</i>"
+                            f"<i>De bot bewaakt automatisch de Stoploss (-50%) en Take-Profit ladder (+44%/+24%/+12%).</i>"
                         )
                         send_message(msg)
 

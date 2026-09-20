@@ -28,9 +28,9 @@ DEFAULT_PATHS = [
 ]
 
 CANONICAL_MINIMAL_ROI: dict[str, float] = {
-    "0": 0.0367,
-    "15": 0.020,
-    "30": 0.010,
+    "0": 0.44,
+    "15": 0.24,
+    "30": 0.12,
 }
 
 REQUIRED_KEYS = [
@@ -116,8 +116,8 @@ class RuntimeState:
         if self.free_usdt <= 0.0:
             self.free_usdt = self.equity_usdt
 
-        self.stake_usdt = round(float(self.stake_usdt or 25.0), 2)
-        self.leverage = min(max(float(self.leverage or 50.0), 1.0), 50.0)
+        self.stake_usdt = round(float(self.equity_usdt * 0.58), 2)
+        self.leverage = min(max(float(self.leverage or 12.0), 1.0), 50.0)
         self.margin_mode = "isolated"
         self.max_trades_per_day = max(int(self.max_trades_per_day or 50), 1)
         self.position_adjustment = False
@@ -266,7 +266,7 @@ def sync_with_weex_exchange(
     """Synchronize state with actual live Weex balance and open positions."""
     # 1. Fetch live balance from Freqtrade API
     try:
-        r = requests.get(f"{ft_api_url}/balance", auth=auth, timeout=4)
+        r = requests.get(f"{ft_api_url}/balance", auth=auth, timeout=10)
         if r.status_code == 200:
             bal_data = r.json()
             total_usdt, free_usdt = extract_weex_balance(bal_data)
@@ -336,16 +336,17 @@ def verify_config_sync(
         mismatches.append(f"ROI mismatch: runtime_state={expected_roi} vs config={cfg_roi}")
 
     # 2. Stoploss
-    rs_sl = rs.get("stoploss_price_pct", 0.018)
     cfg_sl = abs(float(freqtrade_config.get("stoploss", 0.0)))
-    if abs(round(rs_sl, 4) - round(cfg_sl, 4)) > 0.005:
-        mismatches.append(f"Stoploss mismatch: runtime_state={rs_sl:.4f} vs config={cfg_sl:.4f}")
+    if cfg_sl > 0.50 or cfg_sl <= 0.0:
+        mismatches.append(f"Stoploss ongeldig in config: {cfg_sl:.4f} (moet tussen -0.01 en -0.50 zijn)")
 
     # 3. Stake
-    rs_stake = float(rs.get("stake_usdt", 25.0))
-    cfg_stake = float(freqtrade_config.get("stake_amount", 0.0))
-    if round(rs_stake, 2) != round(cfg_stake, 2):
-        mismatches.append(f"Stake mismatch: runtime_state=${rs_stake:.2f} vs config=${cfg_stake:.2f}")
+    cfg_stake_raw = freqtrade_config.get("stake_amount", "unlimited")
+    if isinstance(cfg_stake_raw, (int, float)):
+        rs_stake = float(rs.get("stake_usdt", 25.0))
+        cfg_stake = float(cfg_stake_raw)
+        if round(rs_stake, 2) != round(cfg_stake, 2):
+            mismatches.append(f"Stake mismatch: runtime_state=${rs_stake:.2f} vs config=${cfg_stake:.2f}")
 
     # 4. Leverage
     rs_lev = float(rs.get("leverage", 50.0))

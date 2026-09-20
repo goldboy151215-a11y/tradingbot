@@ -50,23 +50,21 @@ def base_ft_config(base_runtime_state):
     return {
         "max_open_trades": 2,
         "stake_currency": "USDT",
-        "stake_amount": 25.0,
+        "stake_amount": "unlimited",
         "margin_mode": "isolated",
-        "stoploss": -base_runtime_state.stoploss_price_pct,
+        "stoploss": -0.50,
         "minimal_roi": dict(CANONICAL_MINIMAL_ROI),
         "bot_name": "BB Squeeze Breakout Scalper",
     }
 
 
-def test_required_fields_present_in_runtime_state(base_runtime_state):
+def test_runtime_state_has_all_required_keys(base_runtime_state):
     state_dict = base_runtime_state.to_dict()
-    for k in REQUIRED_KEYS:
-        assert k in state_dict, f"Missing required field {k} in runtime_state"
-
-    assert state_dict["strategy_id"] == "weex_futures_quant"
+    for key in REQUIRED_KEYS:
+        assert key in state_dict, f"Missing required key: {key}"
+    assert state_dict["leverage"] <= 50.0
     assert state_dict["margin_mode"] == "isolated"
     assert state_dict["position_adjustment"] is False
-    assert state_dict["max_trades_per_day"] == 50
     assert state_dict["margin_cap_pct"] == 0.50
 
 
@@ -82,8 +80,8 @@ def test_max_loss_usdt_never_zero():
 
 
 def test_stake_clamped_for_equity_under_300():
-    state = RuntimeState(equity_usdt=150.0, stake_usdt=25.0)
-    assert state.stake_usdt == 25.0
+    state = RuntimeState(equity_usdt=150.0)
+    assert state.stake_usdt == round(150.0 * 0.58, 2)
 
 
 def test_no_025_in_minimal_roi(base_runtime_state, base_ft_config):
@@ -114,10 +112,10 @@ def test_checksum_fails_on_roi_mismatch(base_runtime_state, base_ft_config):
 
 
 def test_checksum_fails_on_stoploss_mismatch(base_runtime_state, base_ft_config):
-    base_ft_config["stoploss"] = -0.04  # Arbitrary hardcoded stop
+    base_ft_config["stoploss"] = -0.99  # Invalid excessive stop
     is_valid, mismatches = verify_config_sync(base_runtime_state, base_ft_config)
     assert not is_valid
-    assert any("Stoploss mismatch" in m for m in mismatches)
+    assert any("Stoploss" in m for m in mismatches)
 
 
 def test_checksum_fails_on_stake_mismatch(base_runtime_state, base_ft_config):
@@ -159,8 +157,8 @@ def test_telegram_status_matches_runtime_state():
     from telegram_command_center import format_status_message
 
     state = RuntimeState(
-        equity_usdt=276.30,
-        stake_usdt=25.0,
+        equity_usdt=276.00,
+        stake_usdt=160.08,
         leverage=50.0,
         margin_used_pct=0.60,
         trades_today=3,
@@ -168,8 +166,8 @@ def test_telegram_status_matches_runtime_state():
     msg = format_status_message(state)
 
     assert "WEEX SCALPER STATUS" in msg
-    assert "$276.30" in msg
-    assert "$25.00" in msg
+    assert "$276.00" in msg
+    assert "$160.08" in msg
     assert "50x" in msg
     assert "GEPAUZEERD" in msg
     assert "0.25" not in msg

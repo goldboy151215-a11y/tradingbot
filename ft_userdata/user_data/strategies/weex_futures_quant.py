@@ -2,10 +2,13 @@
 # flake8: noqa: F401
 # isort: skip_file
 """
-WEEX Futures Scalper - BB Squeeze Breakout Strategy for Freqtrade.
+WEEX Futures Dual-Regime Quant Strategy (Long + Short).
 Designed specifically for WEEX USDT-perpetuals.
-5m execution with 4H trend confirmation, Bollinger Band squeeze breakout with volume surge,
-and dynamic isolated leverage.
+5m execution with 4H trend confirmation:
+- Longs: 5m Bollinger Band Squeeze Breakout + Volume Surge + 4H Bull Trend (EMA20)
+- Shorts: 5m Relief Pullback Rejection at EMA20 + Bearish Rejection + 4H Bear Trend (EMA20)
+- Short Flash Breakeven Lock: At +6% ROE (+0.5% price drop at 12x), stoploss snaps to Breakeven (+1%).
+- 12x Isolated Leverage & Dynamic 58% Compounding Wallet Staking.
 """
 
 from datetime import datetime, timezone
@@ -29,23 +32,15 @@ logger = logging.getLogger(__name__)
 
 
 class weex_futures_quant(IStrategy):
-    """WEEX Futures Scalper - Bollinger Band Squeeze Breakout Strategy.
-
-    - 5m execution for rapid scalping opportunities
-    - 4H higher timeframe trend filter (Close > EMA 20)
-    - 5m Bollinger Band Squeeze Breakout (Upper BB cross + Volume > 1.2x MA + RSI 52-70)
-    - 6x Isolated Leverage
-    - Fixed protective Stoploss (-10% ROE / -1.67% price) & Scalp ROI ladder
-    - Cooldown protection after exits
-    """
+    """WEEX Futures Dual-Regime Quant Scalper (Longs + Shorts)."""
 
     INTERFACE_VERSION = 3
     timeframe = "5m"
-    can_short = False
+    can_short = True
 
-    # Stoploss (-1.67% price drop at 12x leverage = -20% ROE)
-    stoploss = -0.20
-    use_custom_stoploss = False
+    # Protective stoploss
+    stoploss = -0.50
+    use_custom_stoploss = True
 
     # Minimal ROI Ladder
     # At 12x leverage:
@@ -112,6 +107,7 @@ class weex_futures_quant(IStrategy):
         """Higher timeframe bias for trend alignment."""
         dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
         dataframe["ema50"] = ta.EMA(dataframe, timeperiod=50)
+        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
         return dataframe
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
@@ -129,25 +125,33 @@ class weex_futures_quant(IStrategy):
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """High-probability 5m BB squeeze breakout entries."""
+        """High-probability 5m Dual-Regime entries (Longs + Shorts)."""
         dataframe.loc[:, "enter_long"] = 0
         dataframe.loc[:, "enter_short"] = 0
         dataframe.loc[:, "enter_tag"] = ""
 
-        pair = metadata["pair"]
-
-        # HTF Trend alignment
+        # HTF 4H Trend alignment
         htf_4h_bull = dataframe["close_4h"] > dataframe["ema20_4h"]
+        htf_4h_bear = (dataframe["close_4h"] < dataframe["ema20_4h"]) & (dataframe["rsi_4h"] < 52)
 
-        # 5m BB Breakout + Volume Surge + Healthy RSI
+        # 1. LONG SIGNALS: 5m BB Breakout + Volume Surge + Healthy RSI
         breakout = (dataframe["close"] > dataframe["bb_upper"]) & (dataframe["close"].shift(1) <= dataframe["bb_upper"].shift(1))
         vol_surge = dataframe["volume"] > dataframe["vol_ma"] * 1.2
-        rsi_ok = (dataframe["rsi"] > 52) & (dataframe["rsi"] < 70)
-
-        long_cond = breakout & vol_surge & rsi_ok & htf_4h_bull
+        rsi_long = (dataframe["rsi"] > 52) & (dataframe["rsi"] < 70)
+        long_cond = breakout & vol_surge & rsi_long & htf_4h_bull
 
         dataframe.loc[long_cond, "enter_long"] = 1
-        dataframe.loc[long_cond, "enter_tag"] = "bb_breakout_scalp"
+        dataframe.loc[long_cond, "enter_tag"] = "bb_breakout_long"
+
+        # 2. SHORT SIGNALS: 5m Relief Pullback to EMA20 + Red Rejection Candle + 4H Bear
+        pullback = (dataframe["high"] >= dataframe["ema20"]) & (dataframe["close"] < dataframe["ema20"])
+        red_rejection = dataframe["close"] < dataframe["open"]
+        rsi_short = (dataframe["rsi"] > 50) & (dataframe["rsi"] < 66)
+        vol_short = dataframe["volume"] > dataframe["vol_ma"] * 1.1
+        short_cond = pullback & red_rejection & rsi_short & htf_4h_bear & vol_short
+
+        dataframe.loc[short_cond, "enter_short"] = 1
+        dataframe.loc[short_cond, "enter_tag"] = "bear_pullback_short"
 
         return dataframe
 
@@ -166,6 +170,10 @@ class weex_futures_quant(IStrategy):
         after_fill: bool,
         **kwargs,
     ) -> Optional[float]:
+        """Lock in Breakeven (+1% fee cushion) on Shorts once in solid green (+6% ROE)."""
+        if trade.is_short:
+            if current_profit > 0.06:
+                return -0.01
         return None
 
     def custom_stake_amount(
@@ -181,17 +189,29 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> float:
-        """Dynamic compounding stake sizing: scales automatically with wallet equity."""
+        """Dynamic compounding stake sizing: scales automatically with live wallet equity."""
         try:
             total_equity = self.wallets.get_total(self.config["stake_currency"])
+            free_equity = self.wallets.get_free(self.config["stake_currency"])
             stake_ratio = float(self.config.get("tradable_balance_ratio", 0.58))
-            compounded = max(min_stake or 5.0, total_equity * stake_ratio)
-            return min(compounded, max_stake)
-        except Exception:
-            cfg_stake = self.config.get("stake_amount", 100.0)
-            if isinstance(cfg_stake, (int, float)):
-                return min(float(cfg_stake), max_stake)
-            return min(100.0, max_stake)
+            
+            open_trades_cnt = len(Trade.get_open_trades())
+            if open_trades_cnt == 0:
+                target_stake = total_equity * stake_ratio
+            else:
+                # When 1 trade is already open, compound on available free margin
+                target_stake = free_equity * stake_ratio
+
+            compounded = max(min_stake or 5.0, target_stake)
+            # Ensure stake never exceeds available free balance on exchange
+            return min(compounded, max_stake, free_equity)
+        except Exception as exc:
+            logger.warning(f"Error in custom_stake_amount: {exc}")
+            try:
+                free_equity = self.wallets.get_free(self.config["stake_currency"])
+                return min(free_equity * 0.58, max_stake)
+            except Exception:
+                return min(50.0, max_stake)
 
     def confirm_trade_entry(
         self,
@@ -205,9 +225,9 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> bool:
-        """Confirm trade entry: strictly 1 position at a time for optimal margin focus."""
+        """Confirm trade entry: strictly max_open_trades (default 2) for disciplined margin focus."""
         open_trades = Trade.get_open_trades()
-        max_allowed = int(self.config.get("max_open_trades", 1))
+        max_allowed = int(self.config.get("max_open_trades", 2))
         if len(open_trades) >= max_allowed:
             return False
         return True
