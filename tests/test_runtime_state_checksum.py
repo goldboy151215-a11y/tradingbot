@@ -48,13 +48,13 @@ def base_runtime_state():
 @pytest.fixture
 def base_ft_config(base_runtime_state):
     return {
-        "max_open_trades": 2,
+        "max_open_trades": 3,
         "stake_currency": "USDT",
         "stake_amount": "unlimited",
         "margin_mode": "isolated",
         "stoploss": -0.50,
         "minimal_roi": dict(CANONICAL_MINIMAL_ROI),
-        "bot_name": "BB Squeeze Breakout Scalper",
+        "bot_name": "WEEX Futures Mega Runner 12x",
     }
 
 

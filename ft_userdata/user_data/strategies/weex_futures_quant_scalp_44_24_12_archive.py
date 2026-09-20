@@ -42,22 +42,18 @@ class weex_futures_quant(IStrategy):
     stoploss = -0.50
     use_custom_stoploss = True
 
-    # Minimal ROI Ladder (Mega Runner)
+    # Minimal ROI Ladder
     # At 12x leverage:
-    # 0 min: +0.80 (+6.67% price move = +80% ROE)
-    # 30 min: +0.50 (+4.17% price move = +50% ROE)
-    # 60 min: +0.30 (+2.50% price move = +30% ROE)
+    # 0 min: +0.44 (+3.67% price move = +44% ROE)
+    # 15 min: +0.24 (+2.00% price move = +24% ROE)
+    # 30 min: +0.12 (+1.00% price move = +12% ROE)
     minimal_roi = {
-        "0": 0.80,
-        "30": 0.50,
-        "60": 0.30,
+        "0": 0.44,
+        "15": 0.24,
+        "30": 0.12,
     }
 
-    # Trailing Stop Winstzekering (Locks in profits on mega breakouts)
-    trailing_stop = True
-    trailing_stop_positive = 0.05
-    trailing_stop_positive_offset = 0.25
-    trailing_only_offset_is_reached = True
+    trailing_stop = False
 
     position_adjustment_enable = False
     max_entry_position_adjustment = 0
@@ -229,9 +225,9 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> bool:
-        """Confirm trade entry: strictly max_open_trades (default 3) for disciplined margin focus."""
+        """Confirm trade entry: strictly max_open_trades (default 2) for disciplined margin focus."""
         open_trades = Trade.get_open_trades()
-        max_allowed = int(self.config.get("max_open_trades", 3))
+        max_allowed = int(self.config.get("max_open_trades", 2))
         if len(open_trades) >= max_allowed:
             return False
         return True

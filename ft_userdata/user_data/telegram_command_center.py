@@ -230,10 +230,10 @@ def format_status_message(state: RuntimeState, title: str = "WEEX SCALPER STATUS
     msg = f"""<b>📊 {title}</b>
 ──────────────────────────
 • <b>Exchange:</b> WEEX (Futures {state.leverage:.0f}x)
-• <b>Modus:</b> {mode_str} | <b>Strategie:</b> 5m Scalper
+• <b>Modus:</b> {mode_str} | <b>Strategie:</b> 5m Mega Runner (80/50/30)
 • <b>Saldo:</b> <code>${state.equity_usdt:.2f} USDT</code> (Vrij: <code>${state.free_usdt:.2f} USDT</code>)
 • <b>Stake (58% Compounding):</b> <code>${state.stake_usdt:.2f} USDT</code> ({state.leverage:.0f}x Isolated)
-• <b>Max Posities:</b> 2 gelijktijdig (Dynamische Marge)
+• <b>Max Posities:</b> 3 gelijktijdig (Dynamische Marge)
 
 <b>📅 RESULTAAT VANDAAG ({today_disp}):</b>
 • <b>Gerealiseerde Winst:</b> {today_pnl_str}
@@ -479,7 +479,7 @@ def handle_config_command() -> str:
     compounded_stake = state.equity_usdt * 0.58
     return f"""<b>⚙️ ACTIEVE BOT CONFIGURATIE</b>
 ──────────────────────────
-• <b>Strategie:</b> WEEX Futures BB 1.8 Squeeze Scalper
+• <b>Strategie:</b> WEEX Futures Mega Runner 12x (Long + Short)
 • <b>Hefboom:</b> {state.leverage:.0f}x Isolated Margin
 • <b>Auto-Compounding:</b> ✅ <b>ACTIEF (58% per trade)</b>
 • <b>Huidig Saldo:</b> <code>${state.equity_usdt:.2f} USDT</code>
@@ -494,11 +494,12 @@ def handle_config_command() -> str:
 
 <b>🛡️ RISICOBEHEER & DOELEN:</b>
 • <b>Stoploss:</b> <code>-50.0% ROE</code> (-4,17% koersdaling)
-• <b>Take-Profit Direct (Pump):</b> <code>+44.0% ROE</code> (+3,67% koers)
-• <b>Take-Profit na 15 min:</b> <code>+24.0% ROE</code> (+2,00% koers)
-• <b>Take-Profit na 30 min:</b> <code>+12.0% ROE</code> (+1,00% koers)
-• <b>Max Open Posities:</b> 1 positie (100% marge-focus)
-• <b>Cooldown:</b> 0 min (Directe herinstap bij signaal)
+• <b>Take-Profit Direct (0-30 min):</b> <code>+80.0% ROE</code> (+6,67% koers)
+• <b>Take-Profit na 30 min:</b> <code>+50.0% ROE</code> (+4,17% koers)
+• <b>Take-Profit na 60 min:</b> <code>+30.0% ROE</code> (+2,50% koers)
+• <b>Trailing Stop:</b> ✅ <b>Actief bij +25% ROE</b> (5% meeloop-stop)
+• <b>Max Open Posities:</b> 3 gelijktijdig (Dynamische Marge)
+• <b>Short Breakeven Lock:</b> ✅ (+6% ROE ➔ BE +1%)
 • <b>Realtime Alerts:</b> ✅ AAN (Push bij elke open & close)
 """
 

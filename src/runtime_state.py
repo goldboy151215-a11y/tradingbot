@@ -28,9 +28,9 @@ DEFAULT_PATHS = [
 ]
 
 CANONICAL_MINIMAL_ROI: dict[str, float] = {
-    "0": 0.44,
-    "15": 0.24,
-    "30": 0.12,
+    "0": 0.80,
+    "30": 0.50,
+    "60": 0.30,
 }
 
 REQUIRED_KEYS = [
