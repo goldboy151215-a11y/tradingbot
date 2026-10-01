@@ -31,7 +31,7 @@
       "breakeven_trigger_pts": 30.0,
       "breakeven_offset_pts": 0.0,
       "orb_start_utc": "13:30",
-      "orb_end_utc": "13:45",
+      "orb_end_utc": "13:35",
       "orb_cutoff_utc": "16:00",
       "vol_mult": 0.90
     },
@@ -46,7 +46,7 @@
       "breakeven_trigger_pts": 3.0,
       "breakeven_offset_pts": 0.0,
       "orb_start_utc": "08:00",
-      "orb_end_utc": "08:15",
+      "orb_end_utc": "08:05",
       "orb_cutoff_utc": "12:00",
       "vol_mult": 0.90
     }

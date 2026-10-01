@@ -60,31 +60,36 @@ class StrategyShield:
         prev_ema20 = float(prev["ema20"]) if not np.isnan(prev["ema20"]) else ema20_val
         prev_ema50 = float(prev["ema50"]) if not np.isnan(prev["ema50"]) else ema50_val
 
-        # 0. New York Open ORB Setup (13:45 - 16:00 UTC)
-        ts_str = curr.get("timestamp", "")
-        try:
-            from datetime import datetime, timezone
-            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if "T" in ts_str else datetime.now(timezone.utc)
-            date_str = dt.strftime("%Y-%m-%d")
-            cur_hm = dt.strftime("%H:%M")
-        except Exception:
-            cur_hm = ""
-            date_str = ""
+        # 0. New York Open 5m ORB Setup (13:35 - 16:00 UTC)
+        now_utc = datetime.now(timezone.utc)
+        today_str = now_utc.strftime("%Y-%m-%d")
+        now_hm = now_utc.strftime("%H:%M")
+        if not hasattr(self, "orb_trades_today"):
+            self.orb_trades_today = {}
+        if today_str not in self.orb_trades_today:
+            self.orb_trades_today[today_str] = {}
 
-        if "13:45" <= cur_hm < "16:00":
-            range_bars = [b for b in bars if b.get("timestamp", "").startswith(date_str) and "13:30" <= b.get("timestamp", "")[11:16] < "13:45"]
-            if range_bars:
-                orb_h = max(float(b["high"]) for b in range_bars)
-                orb_l = min(float(b["low"]) for b in range_bars)
-                vol_ok = curr["volume"] >= curr["vol_ma"] * 0.95
+        orb_start = spec.get("orb_start_utc", "13:30")
+        orb_end = spec.get("orb_end_utc", "13:35")
+        orb_cutoff = spec.get("orb_cutoff_utc", "16:00")
 
-                if curr["close"] > orb_h and (prev["close"] <= orb_h or curr["open"] <= orb_h) and vol_ok and rsi_val >= 48.0:
-                    logger.info(f"NY OPEN ORB LONG on {symbol}! Price: {current_price} > High {orb_h:.2f}")
-                    return "BUY", f"ny_open_orb_long_{symbol}", current_price, rsi_val, ema20_val, ema50_val
+        if orb_end <= now_hm < orb_cutoff:
+            if not self.orb_trades_today[today_str].get(symbol, False):
+                range_bars = [b for b in bars if b.get("timestamp", "").startswith(today_str) and orb_start <= b.get("timestamp", "")[11:16] < orb_end]
+                if range_bars:
+                    orb_h = max(float(b["high"]) for b in range_bars)
+                    orb_l = min(float(b["low"]) for b in range_bars)
+                    vol_ok = curr["volume"] >= curr["vol_ma"] * 0.90
 
-                if curr["close"] < orb_l and (prev["close"] >= orb_l or curr["open"] >= orb_l) and vol_ok and rsi_val <= 52.0:
-                    logger.info(f"NY OPEN ORB SHORT on {symbol}! Price: {current_price} < Low {orb_l:.2f}")
-                    return "SELL", f"ny_open_orb_short_{symbol}", current_price, rsi_val, ema20_val, ema50_val
+                    if current_price > orb_h and vol_ok and rsi_val >= 48.0:
+                        self.orb_trades_today[today_str][symbol] = True
+                        logger.info(f"🚀 NY OPEN 5M ORB LONG on {symbol}! Price: {current_price:.2f} > 5m High {orb_h:.2f}")
+                        return "BUY", f"ny_open_orb_long_{symbol}", current_price, rsi_val, ema20_val, ema50_val
+
+                    if current_price < orb_l and vol_ok and rsi_val <= 52.0:
+                        self.orb_trades_today[today_str][symbol] = True
+                        logger.info(f"🔻 NY OPEN 5M ORB SHORT on {symbol}! Price: {current_price:.2f} < 5m Low {orb_l:.2f}")
+                        return "SELL", f"ny_open_orb_short_{symbol}", current_price, rsi_val, ema20_val, ema50_val
 
         # Long Setup: Bollinger Upper Breakout (Crossover or Strong Green Continuation) + Volume Surge + Bullish Trend
         crossover = (curr["close"] > curr["bb_upper"]) and (prev["close"] <= prev["bb_upper"])

@@ -104,28 +104,28 @@ class StrategyORB:
             orb_low = min(float(b["low"]) for b in range_bars)
 
             # If range session has fully elapsed, lock the range in cache
-            if cur_hm >= range_end:
+            now_utc = datetime.now(timezone.utc)
+            now_hm = now_utc.strftime("%H:%M")
+            if now_hm >= range_end or cur_hm >= range_end:
                 self.range_cache[date_str][symbol] = {"high": orb_high, "low": orb_low}
                 logger.info(f"[{symbol}] {date_str} ORB Locked! High: {orb_high:.2f} | Low: {orb_low:.2f} (Range: {orb_high-orb_low:.2f} pts)")
 
         # Only evaluate breakout AFTER opening range has completed and BEFORE cutoff
-        if not (range_end <= cur_hm < session_end):
+        now_utc = datetime.now(timezone.utc)
+        now_hm = now_utc.strftime("%H:%M")
+        if not (range_end <= now_hm < session_end):
             return "HOLD", "outside_orb_window", current_price, rsi_val, orb_high, orb_low
 
         # Breakout Conditions
-        vol_surge = curr["volume"] >= curr["vol_ma"] * float(spec.get("vol_mult", 0.95))
+        vol_surge = curr["volume"] >= curr["vol_ma"] * float(spec.get("vol_mult", 0.90))
 
         # 1. Bullish Breakout (Long)
-        # Price closes above ORB High while previous candle or curr open was inside/below range
-        long_breakout = (curr["close"] > orb_high) and (prev["close"] <= orb_high or curr["open"] <= orb_high)
-        if long_breakout and vol_surge and rsi_val >= 48.0:
+        if current_price > orb_high and vol_surge and rsi_val >= 48.0:
             logger.info(f"🚀 [{symbol}] ORB LONG BREAKOUT DETECTED! Price: {current_price:.2f} > ORB High {orb_high:.2f} | Vol: {curr['volume']:.0f} | RSI: {rsi_val:.1f}")
             return "BUY", f"orb_breakout_long_{symbol}", current_price, rsi_val, orb_high, orb_low
 
         # 2. Bearish Breakdown (Short)
-        # Price closes below ORB Low while previous candle or curr open was inside/above range
-        short_breakdown = (curr["close"] < orb_low) and (prev["close"] >= orb_low or curr["open"] >= orb_low)
-        if short_breakdown and vol_surge and rsi_val <= 52.0:
+        if current_price < orb_low and vol_surge and rsi_val <= 52.0:
             logger.info(f"🔻 [{symbol}] ORB SHORT BREAKDOWN DETECTED! Price: {current_price:.2f} < ORB Low {orb_low:.2f} | Vol: {curr['volume']:.0f} | RSI: {rsi_val:.1f}")
             return "SELL", f"orb_breakdown_short_{symbol}", current_price, rsi_val, orb_high, orb_low
 
