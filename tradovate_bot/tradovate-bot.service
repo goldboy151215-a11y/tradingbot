@@ -1,0 +1,16 @@
+[Unit]
+Description=FundedNext Tradovate PropFirm Quant Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/tradovate_bot
+ExecStart=/root/.venv/bin/python3 /root/tradovate_bot/main.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/tradovate_bot/tradovate_service.log
+StandardError=append:/root/tradovate_bot/tradovate_service.log
+
+[Install]
+WantedBy=multi-user.target

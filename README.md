@@ -1,116 +1,105 @@
-# WEEX Futures 12x Mega Runner Dual-Regime Quant Bot (Long + Short)
+# 🏛️ Institutional Quant & PropFirm Trading Suite
 
-Geavanceerde algoritmische trading bot voor WEEX Futures (Perpetual USDT Swaps) met **Mega Runner Execution (Long + Short)**, **12x Isolated Leverage**, **3 Actieve Slots**, **58% Dynamic Auto-Compounding**, en **Telegram Command Center & Realtime Notifier**.
-
----
-
-## 📊 Dual-Regime Strategie Specificaties (Long + Short)
-
-De live strategie ([`weex_futures_quant.py`](file:///root/ft_userdata/user_data/strategies/weex_futures_quant.py)) draait op 5m candles met 4H trendfilter en tradeert zowel **Bullish breakouts (Long)** als **Bearish relief pullbacks (Short)**:
-
-- **Exchange**: WEEX Futures (`weex` / perpetual swaps)
-- **Actieve Whitelist (Core 4)**:
-  - `BTC/USDT:USDT`
-  - `ETH/USDT:USDT`
-  - `SOL/USDT:USDT`
-  - `AVAX/USDT:USDT`
-- **Hefboom (Leverage)**: `12x Isolated`
-- **Compounding Model**: Dynamische herinvestering van **58%** van de actuele wallet balance per trade.
-- **Max Gelijktijdige Posities**: **`max_open_trades: 3`** (optimale slotbezetting voor continu trade-volume en diversificatie).
-
-### 🟢 1. LONG REGIME (Breakout Scalp & Runner)
-- **Execution Timeframe**: 5m
-- **Trendfilter**: 4H Close > 4H EMA20 (Bullish HTF Trend)
-- **Entry Signaal**:
-  - 5m Bollinger Bands Breakout (Close > Upper Band, 20-period, 1.8 STD)
-  - Volume Surge (> 1.2x 20-period Volume SMA)
-  - Gezonde RSI (52 - 70)
-- **Exit Logica**:
-  - Mega Runner ROI Ladder (tot +80% ROE)
-  - Trailing Stop Winstzekering vanaf +25% ROE
-
-### 🔴 2. SHORT REGIME (Pullback Rejection)
-- **Execution Timeframe**: 5m
-- **Trendfilter**: 4H Close < 4H EMA20 EN 4H RSI < 52 (Bearish HTF Trend)
-- **Entry Signaal**:
-  - 5m Relief Pullback naar EMA20 (High >= EMA20 & Close < EMA20)
-  - Rode Candle Rejection (Close < Open)
-  - RSI Bearish Momentum (50 - 66)
-  - Volume Bevestiging (> 1.1x Volume SMA)
-- **Flash Breakeven Lock**:
-  - Zodra een short positie +6% ROE (+0.5% prijsdaling bij 12x) bereikt, schiet de stoploss automatisch naar Breakeven (+1% fee buffer).
+Production-grade algorithmic trading infrastructure running autonomous quantitative execution across Crypto Futures (WEEX) and TradFi Regulated Futures (CME / FundedNext Tradovate).
 
 ---
 
-## 🎯 Mega Runner ROI & Trailing Winstladder
+## 🚀 Active Systems Overview
 
-Bij **12x Leverage**:
-| Duur van de Trade | Koersbeweging | ROE Winstdoel |
-| :--- | :--- | :--- |
-| **0 - 30 min (Directe Megapump)** | +6.67% | **`+80.0% ROE`** |
-| **30 - 60 min (Trend Uitschieter)** | +4.17% | **`+50.0% ROE`** |
-| **> 60 min (Consolidatie Winst)** | +2.50% | **`+30.0% ROE`** |
-
-* 🛡️ **Trailing Winstzekering:** Zodra een positie **`+25% ROE`** bereikt, trekt de bot automatisch een **5% Trailing Stoploss** mee omhoog om gerealiseerde winst te beveiligen tegen terugval.
-* 🚨 **Beschermende Noodstop:** `-50% ROE` hard limit op exchange (-4.17% onderliggende koersdaling).
-
----
-
-## 📁 Gearchiveerde Versies
-
-* **[`weex_futures_quant_scalp_44_24_12_archive.py`](file:///root/ft_userdata/user_data/strategies/weex_futures_quant_scalp_44_24_12_archive.py)**: De eerdere snelle scalper variant met 44/24/12 trap en 2 slots.
-
----
-
-## 🚀 Architectuur & Componenten
-
-1. **Freqtrade Core (Docker)**
-   - Draait in een geïsoleerde container met exchange connectors en strategy engine.
-   - Configuratie: `ft_userdata/user_data/config.json`
-   - Strategie: `ft_userdata/user_data/strategies/weex_futures_quant.py`
-
-2. **Telegram Command Center & Realtime Notifier**
-   - Bestand: `ft_userdata/user_data/telegram_command_center.py`
-   - **Thread 1**: Luistert naar Telegram commando's (`/status`, `/balance`, `/trades`, `/config`, `/daily`, `/profit`, `/start`, `/stop`).
-   - **Thread 2**: Realtime SQLite Trade Monitor die direct meldingen stuurt bij elke geopende of gesloten positie.
-
-3. **Web Dashboard Server**
-   - Realtime HTML/JS status visualisatie op poort 80 (`web_dashboard_server.py`).
-
-4. **Unit & Integratietests**
-   - 37 geautomatiseerde tests (`pytest tests/`).
-
----
-
-## 🛠️ Installatie & Gebruik
-
-### 1. Repository klonen & Python omgeving
-```bash
-git clone git@github.com:goldboy151215-a11y/tradingbot.git
-cd tradingbot
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 ```
-
-### 2. Docker & Freqtrade opstarten
-```bash
-cd ft_userdata
-docker compose up -d
-```
-
-### 3. Telegram Notifier starten
-```bash
-nohup /root/.venv/bin/python3 /root/ft_userdata/user_data/telegram_command_center.py >> /root/ft_userdata/user_data/logs/telegram_center.log 2>&1 &
-```
-
-### 4. Tests uitvoeren
-```bash
-pytest -v tests/
+                                  VPS Root Environment
+                                           │
+         ┌─────────────────────────────────┼─────────────────────────────────┐
+         │                                 │                                 │
+         ▼                                 ▼                                 ▼
+   [WEEX BOT]                    [PROPFIRM ACC #1]                 [PROPFIRM ACC #2]
+   Crypto Futures                Tradovate Intraday                Tradovate 15m ORB
+   Freqtrade + Web/TG            Momentum + NY Open                Multi-Asset Breakout
+   12x Leverage                  6 Contracts (MNQ/MGC)             6 Contracts (MNQ/MGC)
 ```
 
 ---
 
-## 🔒 Beveiliging
-Gevoelige API keys, Telegram tokens, databases (`*.sqlite`) en logs worden via `.gitignore` lokaal beschermd en niet gepusht.
+## 1. ⚡ WEEX Futures Quant Bot (`ft_userdata/`)
+* **Engine:** Custom patched Freqtrade Futures with live WEEX exchange connector.
+* **Active Strategy:** [`weex_futures_quant.py`](file:///root/ft_userdata/user_data/strategies/weex_futures_quant.py)
+* **Regime:** Dual-Regime (Bull Breakout Longs + Bearish Pullback Shorts) on top-tier crypto assets.
+* **Leverage & Risk:** 12x dynamic leverage, auto-compounding capital allocation, tiered stoploss (-20% to -25% ROE), flash breakeven lock (+6% ROE).
+* **Control Center:** 
+  - Telegram interactive command center ([`telegram_command_center.py`](file:///root/ft_userdata/user_data/telegram_command_center.py))
+  - Real-time web performance dashboard on port 80 ([`web_dashboard_server.py`](file:///root/ft_userdata/user_data/web_dashboard_server.py))
+
+---
+
+## 2. 🛡️ FundedNext PropFirm Bot #1: Intraday Scalper (`tradovate_bot/`)
+* **Account:** FundedNext $50k Account (`FNFTCHDONDIEGOTHEHU83523`)
+* **Engine:** Pure Python asynchronous WebSocket client connecting directly to Tradovate Order & Market Data WS.
+* **Active Strategy:** [`strategy_shield.py`](file:///root/tradovate_bot/strategy_shield.py)
+  - **New York Open 15m ORB:** Captures the 13:30 - 13:45 UTC opening range on the Nasdaq (`MNQZ6`).
+  - **Intraday 5m Momentum:** Bollinger Band breakouts (Long) & EMA20 Pullback Rejections (Short).
+* **Execution & Position Sizing:**
+  - **Contracts:** **6 contracts** per trade.
+  - **Stop Loss:** 30.0 pts MNQ (-$360) / 6.0 pts MGC.
+  - **Take Profit:** 50.0 pts MNQ (+$600).
+  - **Breakeven Rule:** Triggered strictly when **+30.0 points** profit is touched; SL moves to exact Entry ($0 risk). No trailing stop.
+* **Risk Shield:**
+  - Max Daily Loss: `-$450.00`
+  - Daily Profit Cap (40% Consistency rule): `+$900.00`
+  - Max Overall Loss: `-$1,500.00`
+* **Service:** `tradovate-bot.service`
+
+---
+
+## 3. 🎯 FundedNext PropFirm Bot #2: Multi-Asset 15m ORB (`tradovate_bot_acc2/`)
+* **Account:** FundedNext $50k Account (`FNFTCHDONDIEGOTHEHU81239`)
+* **Engine:** Dedicated isolated Tradovate WebSocket client with separate session token management.
+* **Active Strategy:** [`strategy_orb.py`](file:///root/tradovate_bot_acc2/strategy_orb.py)
+  - **Multi-Asset Session Edge:**
+    1. **Micro Gold (`MGCZ6`)**: European/London Open (08:00 - 08:15 UTC range).
+    2. **Micro Nasdaq (`MNQZ6`)**: New York Wall Street Open (13:30 - 13:45 UTC range).
+  - **Anti-Overtrading Protocol:** Strictly **1 trade per market per day**. Once executed, the asset locks until the next session.
+* **Execution & Position Sizing:**
+  - **Contracts:** **6 contracts** per trade.
+  - **Stop Loss:** 25.0 pts MNQ (-$300) / 4.0 pts MGC (-$240).
+  - **Take Profit:** 50.0 pts MNQ (+$600) / 8.0 pts MGC (+$480) — *1:2 Risk/Reward*.
+  - **Breakeven Rule:** Triggered strictly when **+30.0 points** profit is touched; SL moves to exact Entry ($0 risk).
+* **Risk Shield:**
+  - Max Daily Loss: `-$400.00` (Circuit breaker stops trading for the day).
+  - Daily Profit Cap: `+$900.00` (Protects winning days from overtrading).
+  - Max Overall Loss: `-$1,500.00`
+  - Profit Target: `+$2,500.00`
+* **Service:** `tradovate-bot-acc2.service`
+
+---
+
+## 📲 Telegram Unified Control & Telemetry
+
+Both PropFirm accounts and the WEEX bot broadcast telemetry and alerts to the designated Telegram command center:
+* **Account 1 Alerts:** Standard header with live position, PnL, and trade executions.
+* **Account 2 Alerts:** Distinct `🛡️ [FUNDEDNEXT ACC #2 - ORB MULTI-ASSET]` header.
+* **Unified Status:** Typing `/status` or tapping `📊 Status` generates a consolidated real-time overview of **both accounts** simultaneously.
+
+---
+
+## 🛠️ Service Management
+
+```bash
+# Check status of PropFirm bots
+systemctl status tradovate-bot.service tradovate-bot-acc2.service
+
+# Restart PropFirm bots
+systemctl restart tradovate-bot.service
+systemctl restart tradovate-bot-acc2.service
+
+# View live trader logs
+tail -f /root/tradovate_bot/tradovate_trader.log
+tail -f /root/tradovate_bot_acc2/tradovate_trader_acc2.log
+
+# Check WEEX Docker containers
+docker ps
+```
+
+---
+
+## 🔒 Security Notice
+All private credentials, tokens, SQLite databases, and API keys are strictly excluded via [`.gitignore`](file:///root/.gitignore). Example configurations are provided via `config.example.json`.

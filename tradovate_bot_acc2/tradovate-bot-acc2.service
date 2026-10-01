@@ -1,0 +1,16 @@
+[Unit]
+Description=FundedNext Account 2 - Tradovate ORB Multi-Asset PropFirm Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/tradovate_bot_acc2
+ExecStart=/root/.venv/bin/python3 /root/tradovate_bot_acc2/main.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/tradovate_bot_acc2/tradovate_service_acc2.log
+StandardError=append:/root/tradovate_bot_acc2/tradovate_service_acc2.log
+
+[Install]
+WantedBy=multi-user.target

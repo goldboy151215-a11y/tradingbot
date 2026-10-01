@@ -22,6 +22,7 @@ from freqtrade.strategy import (
     IntParameter,
     IStrategy,
     informative,
+    stoploss_from_open,
 )
 import numpy as np
 import pandas as pd
@@ -36,28 +37,50 @@ class weex_futures_quant(IStrategy):
 
     INTERFACE_VERSION = 3
     timeframe = "5m"
-    can_short = True
+    can_short = False
 
-    # Protective stoploss
-    stoploss = -0.50
-    use_custom_stoploss = True
+    # Protective Stoploss (-20% ROE / -1.67% price move at 12x)
+    stoploss = -0.20
+    use_custom_stoploss = False
 
-    # Minimal ROI Ladder (Mega Runner)
-    # At 12x leverage:
-    # 0 min: +0.80 (+6.67% price move = +80% ROE)
-    # 30 min: +0.50 (+4.17% price move = +50% ROE)
-    # 60 min: +0.30 (+2.50% price move = +30% ROE)
-    minimal_roi = {
-        "0": 0.80,
-        "30": 0.50,
-        "60": 0.30,
+    # Per-Coin Quant Profiles: Tailored filters to buy on the floor (support bounce) instead of roof breakouts
+    # SUI and AVAX receive stricter volume surge and deeper rejection wick filters to avoid falling knives
+    COIN_PROFILES: Dict[str, Dict[str, float]] = {
+        "SUI":  {"vol_mult": 1.25, "rsi_min": 42.0, "rsi_max": 52.0, "min_wick": 0.25, "initial_sl": -0.20},
+        "AVAX": {"vol_mult": 1.20, "rsi_min": 42.0, "rsi_max": 53.0, "min_wick": 0.22, "initial_sl": -0.20},
+        "NEAR": {"vol_mult": 1.10, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20},
+        "SOL":  {"vol_mult": 0.90, "rsi_min": 40.0, "rsi_max": 56.0, "min_wick": 0.15, "initial_sl": -0.20},
+        "ETH":  {"vol_mult": 0.90, "rsi_min": 40.0, "rsi_max": 56.0, "min_wick": 0.15, "initial_sl": -0.20},
+        "BTC":  {"vol_mult": 0.90, "rsi_min": 40.0, "rsi_max": 56.0, "min_wick": 0.15, "initial_sl": -0.20},
+        "XRP":  {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20},
+        "LINK": {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20},
+        "DOGE": {"vol_mult": 1.15, "rsi_min": 42.0, "rsi_max": 53.0, "min_wick": 0.20, "initial_sl": -0.20},
+        "LTC":  {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20},
+        "BNB":  {"vol_mult": 0.95, "rsi_min": 40.0, "rsi_max": 56.0, "min_wick": 0.15, "initial_sl": -0.20},
+        "ADA":  {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20},
     }
 
-    # Trailing Stop Winstzekering (Locks in profits on mega breakouts)
-    trailing_stop = True
-    trailing_stop_positive = 0.05
-    trailing_stop_positive_offset = 0.25
-    trailing_only_offset_is_reached = True
+    def get_coin_profile(self, pair: str) -> Dict[str, float]:
+        for base, prof in self.COIN_PROFILES.items():
+            if pair.startswith(base):
+                return prof
+        return {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20}
+
+    # Minimal ROI Ladder (Realistic Peak Scalper)
+    # At 12x leverage:
+    # 0 min:  +0.30 (+2.50% price move = +30% ROE)
+    # 15 min: +0.22 (+1.83% price move = +22% ROE)
+    # 30 min: +0.16 (+1.33% price move = +16% ROE)
+    # 60 min: +0.12 (+1.00% price move = +12% ROE)
+    minimal_roi = {
+        "0": 0.30,
+        "15": 0.22,
+        "30": 0.16,
+        "60": 0.12,
+    }
+
+    # Trailing Stop: UITGESCHAKELD (geen trailing stoploss meer, trades krijgen volledige ademruimte om naar take-profit te lopen)
+    trailing_stop = False
 
     position_adjustment_enable = False
     max_entry_position_adjustment = 0
@@ -125,37 +148,54 @@ class weex_futures_quant(IStrategy):
         dataframe["bb_upper"] = boll["upperband"]
         dataframe["bb_middle"] = boll["middleband"]
         dataframe["bb_lower"] = boll["lowerband"]
+        dataframe["bb_width"] = (dataframe["bb_upper"] - dataframe["bb_lower"]) / dataframe["bb_middle"]
+        dataframe["bb_width_ma"] = dataframe["bb_width"].rolling(20).mean()
 
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """High-probability 5m Dual-Regime entries (Longs + Shorts)."""
+        """High-probability 5m breakouts tailored to each coin's personality."""
         dataframe.loc[:, "enter_long"] = 0
         dataframe.loc[:, "enter_short"] = 0
         dataframe.loc[:, "enter_tag"] = ""
 
         # HTF 4H Trend alignment
         htf_4h_bull = dataframe["close_4h"] > dataframe["ema20_4h"]
-        htf_4h_bear = (dataframe["close_4h"] < dataframe["ema20_4h"]) & (dataframe["rsi_4h"] < 52)
 
-        # 1. LONG SIGNALS: 5m BB Breakout + Volume Surge + Healthy RSI
-        breakout = (dataframe["close"] > dataframe["bb_upper"]) & (dataframe["close"].shift(1) <= dataframe["bb_upper"].shift(1))
-        vol_surge = dataframe["volume"] > dataframe["vol_ma"] * 1.2
-        rsi_long = (dataframe["rsi"] > 52) & (dataframe["rsi"] < 70)
-        long_cond = breakout & vol_surge & rsi_long & htf_4h_bull
+        # Adaptive profile for this coin
+        pair = metadata.get("pair", "")
+        prof = self.get_coin_profile(pair)
+        vol_mult = prof.get("vol_mult", 1.00)
+        rsi_min = prof.get("rsi_min", 40.0)
+        rsi_max = prof.get("rsi_max", 55.0)
+        min_wick = prof.get("min_wick", 0.18)
+
+        # 1. LONG SIGNALS: Kopen op de Vloer (Support Bounce & Squeeze Accumulation)
+        # Prijs test de vloer: raakte in huidige of vorige kaars de EMA20 / BB Middle / EMA50
+        floor_test = (
+            (dataframe["low"] <= dataframe["bb_middle"]) |
+            (dataframe["low"].shift(1) <= dataframe["bb_middle"].shift(1))
+        )
+
+        # Bodembevestiging: Kaars is groen en sluit krachtig boven de steun/vloer
+        bounce_green = (dataframe["close"] > dataframe["open"]) & (dataframe["close"] >= dataframe["bb_middle"] * 0.998)
+
+        # Rejectie-wick van onderen (kopers verdedigen de vloer)
+        candle_range = dataframe["high"] - dataframe["low"] + 1e-6
+        lower_wick = dataframe[["close", "open"]].min(axis=1) - dataframe["low"]
+        has_support_rejection = (lower_wick / candle_range) >= min_wick
+
+        # Niet op het dak kopen: Voldoende ruimte naar de bovenste band
+        not_at_roof = dataframe["close"] < (dataframe["bb_upper"] * 0.995)
+
+        # Volume & RSI in de gezonde bodem/afkoelzone
+        vol_bounce = dataframe["volume"] > dataframe["vol_ma"] * vol_mult
+        rsi_floor = (dataframe["rsi"] >= rsi_min) & (dataframe["rsi"] <= rsi_max)
+
+        long_cond = htf_4h_bull & floor_test & bounce_green & has_support_rejection & not_at_roof & rsi_floor & vol_bounce
 
         dataframe.loc[long_cond, "enter_long"] = 1
-        dataframe.loc[long_cond, "enter_tag"] = "bb_breakout_long"
-
-        # 2. SHORT SIGNALS: 5m Relief Pullback to EMA20 + Red Rejection Candle + 4H Bear
-        pullback = (dataframe["high"] >= dataframe["ema20"]) & (dataframe["close"] < dataframe["ema20"])
-        red_rejection = dataframe["close"] < dataframe["open"]
-        rsi_short = (dataframe["rsi"] > 50) & (dataframe["rsi"] < 66)
-        vol_short = dataframe["volume"] > dataframe["vol_ma"] * 1.1
-        short_cond = pullback & red_rejection & rsi_short & htf_4h_bear & vol_short
-
-        dataframe.loc[short_cond, "enter_short"] = 1
-        dataframe.loc[short_cond, "enter_tag"] = "bear_pullback_short"
+        dataframe.loc[long_cond, "enter_tag"] = f"floor_bounce_{pair.split('/')[0]}"
 
         return dataframe
 
@@ -174,10 +214,8 @@ class weex_futures_quant(IStrategy):
         after_fill: bool,
         **kwargs,
     ) -> Optional[float]:
-        """Lock in Breakeven (+1% fee cushion) on Shorts once in solid green (+6% ROE)."""
-        if trade.is_short:
-            if current_profit > 0.06:
-                return -0.01
+        """Trailing stop completely disabled per user instruction.
+        Trades maintain fixed protective stoploss and exit exclusively via minimal_roi ladder."""
         return None
 
     def custom_stake_amount(
@@ -193,29 +231,24 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> float:
-        """Dynamic compounding stake sizing: scales automatically with live wallet equity."""
+        """Strict 50% account sizing per trade: each trade allocates exactly 50% of total account equity."""
         try:
             total_equity = self.wallets.get_total(self.config["stake_currency"])
             free_equity = self.wallets.get_free(self.config["stake_currency"])
-            stake_ratio = float(self.config.get("tradable_balance_ratio", 0.58))
-            
-            open_trades_cnt = len(Trade.get_open_trades())
-            if open_trades_cnt == 0:
-                target_stake = total_equity * stake_ratio
-            else:
-                # When 1 trade is already open, compound on available free margin
-                target_stake = free_equity * stake_ratio
+
+            # Every trade receives 50% of the total account equity
+            target_stake = total_equity * 0.50
 
             compounded = max(min_stake or 5.0, target_stake)
-            # Ensure stake never exceeds available free balance on exchange
-            return min(compounded, max_stake, free_equity)
+            # Never exceed available free margin, leave safety buffer
+            return min(compounded, max_stake, free_equity * 0.95)
         except Exception as exc:
             logger.warning(f"Error in custom_stake_amount: {exc}")
             try:
                 free_equity = self.wallets.get_free(self.config["stake_currency"])
-                return min(free_equity * 0.58, max_stake)
+                return min(free_equity * 0.50, max_stake)
             except Exception:
-                return min(50.0, max_stake)
+                return min(25.0, max_stake)
 
     def confirm_trade_entry(
         self,
@@ -229,11 +262,33 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> bool:
-        """Confirm trade entry: strictly max_open_trades (default 3) for disciplined margin focus."""
+        """Confirm trade entry: max 2 open trades (50% each) and Anti-Peak Re-entry Guard."""
         open_trades = Trade.get_open_trades()
-        max_allowed = int(self.config.get("max_open_trades", 3))
+        max_allowed = int(self.config.get("max_open_trades", 2))
         if len(open_trades) >= max_allowed:
             return False
+
+        # Anti-Peak Re-entry Guard: Prevent immediately buying back into the exact same coin
+        # within 15 minutes of taking profit/exiting on that same pump wave
+        try:
+            if getattr(Trade, "use_db", True):
+                closed_trades = [
+                    t for t in Trade.get_trades([Trade.pair == pair, Trade.is_open.is_(False)]).all()
+                    if t.close_date
+                ]
+                if closed_trades:
+                    last_trade = max(closed_trades, key=lambda t: t.close_date)
+                    close_dt = last_trade.close_date
+                    if close_dt.tzinfo is None:
+                        close_dt = close_dt.replace(tzinfo=timezone.utc)
+                    now_dt = current_time if current_time.tzinfo else current_time.replace(tzinfo=timezone.utc)
+                    mins_since_exit = (now_dt - close_dt).total_seconds() / 60.0
+                    if mins_since_exit < 15.0:
+                        logger.info(f"Anti-Peak Guard: Skipping {pair} re-entry ({mins_since_exit:.1f}m since last exit, min 15m required to avoid exhaustion trap)")
+                        return False
+        except Exception as exc:
+            logger.warning(f"Error checking Anti-Peak Guard for {pair}: {exc}")
+
         return True
 
     def confirm_trade_exit(
