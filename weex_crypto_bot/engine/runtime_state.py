@@ -118,7 +118,7 @@ class RuntimeState:
             self.free_usdt = self.equity_usdt
 
         self.stake_usdt = round(float(self.equity_usdt * 0.50), 2)
-        self.leverage = min(max(float(self.leverage or 12.0), 1.0), 50.0)
+        self.leverage = min(max(float(self.leverage or 8.0), 1.0), 50.0)
         self.margin_mode = "isolated"
         self.max_trades_per_day = max(int(self.max_trades_per_day or 50), 1)
         self.position_adjustment = False

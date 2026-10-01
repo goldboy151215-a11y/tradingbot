@@ -8,7 +8,7 @@ Designed specifically for WEEX USDT-perpetuals.
 - Longs: 5m Bollinger Band Squeeze Breakout + Volume Surge + 4H Bull Trend (EMA20)
 - Shorts: 5m Relief Pullback Rejection at EMA20 + Bearish Rejection + 4H Bear Trend (EMA20)
 - Short Flash Breakeven Lock: At +6% ROE (+0.5% price drop at 12x), stoploss snaps to Breakeven (+1%).
-- 12x Isolated Leverage & Dynamic 58% Compounding Wallet Staking.
+- 8x Isolated Leverage & Dynamic 58% Compounding Wallet Staking.
 """
 
 from datetime import datetime, timezone
@@ -39,14 +39,13 @@ class weex_futures_quant(IStrategy):
     timeframe = "5m"
     can_short = False
 
-    # Protective Stoploss (-20% ROE / -1.67% price move at 12x)
+    # Protective Stoploss (-20% ROE / -2.50% price move at 8x)
     stoploss = -0.20
     use_custom_stoploss = False
 
     # Per-Coin Quant Profiles: Tailored filters to buy on the floor (support bounce) instead of roof breakouts
-    # SUI and AVAX receive stricter volume surge and deeper rejection wick filters to avoid falling knives
+    # AVAX receives stricter volume surge and deeper rejection wick filters to avoid falling knives
     COIN_PROFILES: Dict[str, Dict[str, float]] = {
-        "SUI":  {"vol_mult": 1.25, "rsi_min": 42.0, "rsi_max": 52.0, "min_wick": 0.25, "initial_sl": -0.20},
         "AVAX": {"vol_mult": 1.20, "rsi_min": 42.0, "rsi_max": 53.0, "min_wick": 0.22, "initial_sl": -0.20},
         "NEAR": {"vol_mult": 1.10, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20},
         "SOL":  {"vol_mult": 0.90, "rsi_min": 40.0, "rsi_max": 56.0, "min_wick": 0.15, "initial_sl": -0.20},
@@ -67,11 +66,11 @@ class weex_futures_quant(IStrategy):
         return {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 55.0, "min_wick": 0.18, "initial_sl": -0.20}
 
     # Minimal ROI Ladder (Realistic Peak Scalper)
-    # At 12x leverage:
-    # 0 min:  +0.30 (+2.50% price move = +30% ROE)
-    # 15 min: +0.22 (+1.83% price move = +22% ROE)
-    # 30 min: +0.16 (+1.33% price move = +16% ROE)
-    # 60 min: +0.12 (+1.00% price move = +12% ROE)
+    # At 8x leverage:
+    # 0 min:  +0.30 (+3.75% price move = +30% ROE)
+    # 15 min: +0.22 (+2.75% price move = +22% ROE)
+    # 30 min: +0.16 (+2.00% price move = +16% ROE)
+    # 60 min: +0.12 (+1.50% price move = +12% ROE)
     minimal_roi = {
         "0": 0.30,
         "15": 0.22,
@@ -125,8 +124,8 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> float:
-        """Enforce 12x leverage on WEEX perpetuals (capped at exchange max)."""
-        target_leverage = 12.0
+        """Enforce 8x leverage on WEEX perpetuals (capped at exchange max)."""
+        target_leverage = 8.0
         return min(target_leverage, max_leverage) if max_leverage > 1.0 else target_leverage
 
     @informative("4h")
