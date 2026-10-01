@@ -121,7 +121,7 @@
         "ws_token": "ietsanderswillekeurigs",
         "CORS_origins": [],
         "username": "admin",
-        "password": "mendy7218"
+        "password": "YOUR_API_PASSWORD"
     },
     "bot_name": "WEEX Futures Scalper 50x",
     "initial_state": "running",

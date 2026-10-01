@@ -1,105 +1,66 @@
-# 🏛️ Institutional Quant & PropFirm Trading Suite
+# 🏛️ Autonomous Trading Infrastructure & Code Backup
 
-Production-grade algorithmic trading infrastructure running autonomous quantitative execution across Crypto Futures (WEEX) and TradFi Regulated Futures (CME / FundedNext Tradovate).
+Production-grade algorithmic trading repository containing the complete source codes and strategies for both Crypto Futures (WEEX) and TradFi Regulated Futures (CME / FundedNext Tradovate).
 
 ---
 
-## 🚀 Active Systems Overview
+## 📂 Repository Structure
 
 ```
-                                  VPS Root Environment
-                                           │
-         ┌─────────────────────────────────┼─────────────────────────────────┐
-         │                                 │                                 │
-         ▼                                 ▼                                 ▼
-   [WEEX BOT]                    [PROPFIRM ACC #1]                 [PROPFIRM ACC #2]
-   Crypto Futures                Tradovate Intraday                Tradovate 15m ORB
-   Freqtrade + Web/TG            Momentum + NY Open                Multi-Asset Breakout
-   12x Leverage                  6 Contracts (MNQ/MGC)             6 Contracts (MNQ/MGC)
+.
+├── weex_crypto_bot/             # ⚡ WEEX Crypto Futures Trading Systems
+│   ├── engine/                  # Standalone CCXT autonomous execution bot
+│   │   ├── runner.py            # Main execution loop & bias calculation
+│   │   ├── exchange.py          # CCXT exchange wrapper with isolated margin
+│   │   ├── risk.py              # Dynamic position sizing & risk controls
+│   │   ├── strategy.py          # Dealing Range + Fibonacci POI strategy
+│   │   └── runtime_state.py     # State manager with SHA-256 integrity checksums
+│   ├── freqtrade_quant/         # Freqtrade 12x production quant suite
+│   │   ├── weex_futures_quant.py# Dual-Regime 12x quant strategy
+│   │   ├── weex_exchange_patch.py# WEEX API signature & connector patch
+│   │   ├── telegram_command_center.py# Interactive Telegram command bot
+│   │   ├── web_dashboard_server.py # Real-time HTTP dashboard server
+│   │   ├── Dockerfile           # Production container build
+│   │   ├── docker-compose.yml   # Multi-service container orchestration
+│   │   └── config.example.json  # Sanitized configuration template
+│   └── README.md
+│
+├── propfirm_bot_account1/       # 🛡️ FundedNext PropFirm Bot #1 ($50k Intraday Scalper)
+│   ├── main.py                  # Async WebSocket event loop & risk monitors
+│   ├── strategy_shield.py       # 15m NY Open ORB + 5m momentum strategy logic
+│   ├── order_manager.py         # Tradovate order routing, 6 contracts, 30pt Breakeven
+│   ├── auth_manager.py          # Tradovate OAuth authentication & token refresh
+│   ├── telegram_bot.py          # Interactive Telegram control bot
+│   ├── telegram_alerts.py       # Real-time execution alert dispatcher
+│   ├── tradovate-bot.service    # Linux systemd daemon definition
+│   ├── config.example.json      # Sanitized configuration template
+│   └── README.md
+│
+├── propfirm_bot_account2/       # 🎯 FundedNext PropFirm Bot #2 ($50k Multi-Asset ORB)
+│   ├── main.py                  # Async WebSocket event loop & session locks
+│   ├── strategy_orb.py          # 15m Opening Range Breakout (Micro Nasdaq & Micro Gold)
+│   ├── order_manager.py         # Tradovate order routing, 6 contracts, 30pt Breakeven
+│   ├── auth_manager.py          # Isolated Tradovate OAuth authentication
+│   ├── telegram_alerts.py       # Acc #2 branded telemetry alert dispatcher
+│   ├── tradovate-bot-acc2.service # Linux systemd daemon definition
+│   ├── config.example.json      # Sanitized configuration template
+│   └── README.md
+│
+├── requirements.txt             # Python dependencies
+└── README.md
 ```
 
 ---
 
-## 1. ⚡ WEEX Futures Quant Bot (`ft_userdata/`)
-* **Engine:** Custom patched Freqtrade Futures with live WEEX exchange connector.
-* **Active Strategy:** [`weex_futures_quant.py`](file:///root/ft_userdata/user_data/strategies/weex_futures_quant.py)
-* **Regime:** Dual-Regime (Bull Breakout Longs + Bearish Pullback Shorts) on top-tier crypto assets.
-* **Leverage & Risk:** 12x dynamic leverage, auto-compounding capital allocation, tiered stoploss (-20% to -25% ROE), flash breakeven lock (+6% ROE).
-* **Control Center:** 
-  - Telegram interactive command center ([`telegram_command_center.py`](file:///root/ft_userdata/user_data/telegram_command_center.py))
-  - Real-time web performance dashboard on port 80 ([`web_dashboard_server.py`](file:///root/ft_userdata/user_data/web_dashboard_server.py))
+## 🚀 Active Systems Summary
 
----
-
-## 2. 🛡️ FundedNext PropFirm Bot #1: Intraday Scalper (`tradovate_bot/`)
-* **Account:** FundedNext $50k Account (`FNFTCHDONDIEGOTHEHU83523`)
-* **Engine:** Pure Python asynchronous WebSocket client connecting directly to Tradovate Order & Market Data WS.
-* **Active Strategy:** [`strategy_shield.py`](file:///root/tradovate_bot/strategy_shield.py)
-  - **New York Open 15m ORB:** Captures the 13:30 - 13:45 UTC opening range on the Nasdaq (`MNQZ6`).
-  - **Intraday 5m Momentum:** Bollinger Band breakouts (Long) & EMA20 Pullback Rejections (Short).
-* **Execution & Position Sizing:**
-  - **Contracts:** **6 contracts** per trade.
-  - **Stop Loss:** 30.0 pts MNQ (-$360) / 6.0 pts MGC.
-  - **Take Profit:** 50.0 pts MNQ (+$600).
-  - **Breakeven Rule:** Triggered strictly when **+30.0 points** profit is touched; SL moves to exact Entry ($0 risk). No trailing stop.
-* **Risk Shield:**
-  - Max Daily Loss: `-$450.00`
-  - Daily Profit Cap (40% Consistency rule): `+$900.00`
-  - Max Overall Loss: `-$1,500.00`
-* **Service:** `tradovate-bot.service`
-
----
-
-## 3. 🎯 FundedNext PropFirm Bot #2: Multi-Asset 15m ORB (`tradovate_bot_acc2/`)
-* **Account:** FundedNext $50k Account (`FNFTCHDONDIEGOTHEHU81239`)
-* **Engine:** Dedicated isolated Tradovate WebSocket client with separate session token management.
-* **Active Strategy:** [`strategy_orb.py`](file:///root/tradovate_bot_acc2/strategy_orb.py)
-  - **Multi-Asset Session Edge:**
-    1. **Micro Gold (`MGCZ6`)**: European/London Open (08:00 - 08:15 UTC range).
-    2. **Micro Nasdaq (`MNQZ6`)**: New York Wall Street Open (13:30 - 13:45 UTC range).
-  - **Anti-Overtrading Protocol:** Strictly **1 trade per market per day**. Once executed, the asset locks until the next session.
-* **Execution & Position Sizing:**
-  - **Contracts:** **6 contracts** per trade.
-  - **Stop Loss:** 25.0 pts MNQ (-$300) / 4.0 pts MGC (-$240).
-  - **Take Profit:** 50.0 pts MNQ (+$600) / 8.0 pts MGC (+$480) — *1:2 Risk/Reward*.
-  - **Breakeven Rule:** Triggered strictly when **+30.0 points** profit is touched; SL moves to exact Entry ($0 risk).
-* **Risk Shield:**
-  - Max Daily Loss: `-$400.00` (Circuit breaker stops trading for the day).
-  - Daily Profit Cap: `+$900.00` (Protects winning days from overtrading).
-  - Max Overall Loss: `-$1,500.00`
-  - Profit Target: `+$2,500.00`
-* **Service:** `tradovate-bot-acc2.service`
-
----
-
-## 📲 Telegram Unified Control & Telemetry
-
-Both PropFirm accounts and the WEEX bot broadcast telemetry and alerts to the designated Telegram command center:
-* **Account 1 Alerts:** Standard header with live position, PnL, and trade executions.
-* **Account 2 Alerts:** Distinct `🛡️ [FUNDEDNEXT ACC #2 - ORB MULTI-ASSET]` header.
-* **Unified Status:** Typing `/status` or tapping `📊 Status` generates a consolidated real-time overview of **both accounts** simultaneously.
-
----
-
-## 🛠️ Service Management
-
-```bash
-# Check status of PropFirm bots
-systemctl status tradovate-bot.service tradovate-bot-acc2.service
-
-# Restart PropFirm bots
-systemctl restart tradovate-bot.service
-systemctl restart tradovate-bot-acc2.service
-
-# View live trader logs
-tail -f /root/tradovate_bot/tradovate_trader.log
-tail -f /root/tradovate_bot_acc2/tradovate_trader_acc2.log
-
-# Check WEEX Docker containers
-docker ps
-```
+| System | Platform / Exchange | Strategy | Sizing | Breakeven Rule |
+| :--- | :--- | :--- | :--- | :--- |
+| **WEEX Bot** | WEEX Futures | Dual-Regime Quant + CCXT POI | 12x Dynamic Leverage | Auto-lock at +6% ROE |
+| **PropFirm #1** | FundedNext / Tradovate | Intraday Scalper + 15m NY Open | 6 Contracts (`MNQZ6`/`MGCZ6`) | Move to BE at **+30.0 pts** |
+| **PropFirm #2** | FundedNext / Tradovate | Multi-Asset 15m ORB (London/NY) | 6 Contracts (`MNQZ6`/`MGCZ6`) | Move to BE at **+30.0 pts** |
 
 ---
 
 ## 🔒 Security Notice
-All private credentials, tokens, SQLite databases, and API keys are strictly excluded via [`.gitignore`](file:///root/.gitignore). Example configurations are provided via `config.example.json`.
+All private credentials, passwords, active Tradovate tokens, SQLite databases, and environment keys are strictly excluded via [`.gitignore`](file:///.gitignore). All configuration files in this repository use sanitized `config.example.json` templates.
