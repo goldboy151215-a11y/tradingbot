@@ -39,19 +39,24 @@
       "orb_cutoff_utc": "16:00",
       "vol_mult": 1.05,
       "rsi_min": 50,
-      "rsi_max": 74
+      "rsi_max": 74,
+      "orb_split_exit_enabled": true,
+      "orb_split_tp1_pts": 50.0,
+      "orb_split_tp1_contracts": 3,
+      "orb_runner_trailing_pts": 15.0,
+      "orb_runner_lock_pts": 35.0
     },
     "MGCZ6": {
       "name": "Micro Gold",
       "contract_id": 4223861,
-      "tick_size": 0.10,
+      "tick_size": 0.1,
       "point_value": 10.0,
       "max_contracts": 6,
       "stoploss_pts": 6.0,
       "takeprofit_pts": 10.0,
       "breakeven_trigger_pts": 3.0,
       "breakeven_offset_pts": 0.0,
-      "vol_mult": 1.20,
+      "vol_mult": 1.2,
       "rsi_min": 52,
       "rsi_max": 70
     }

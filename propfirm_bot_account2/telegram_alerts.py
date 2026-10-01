@@ -69,6 +69,17 @@ class TelegramAlertsAcc2:
         )
         self.send(msg)
 
+    def notify_partial_tp(self, symbol: str, exit_price: float, qty_closed: int, remaining_qty: int, pnl_usd: float, pts: float):
+        msg = (
+            f"💰 *[ACC #2] GOUDEN OCHTEND TRADE: TP1 (+{pts:.1f} PTS) BEREIKT!* 🎯\n\n"
+            f"📈 *Symbool:* `{symbol}`\n"
+            f"📦 *Deelsluiting:* `{qty_closed}` contracten verzilverd (+${pnl_usd:,.2f})\n"
+            f"📍 *Exit Koers:* `{exit_price:.2f}`\n"
+            f"🚀 *Runner Status:* `{remaining_qty}` contracten lopen door naar Max Dagwinst!\n"
+            f"🔒 *Winstbeveiliging:* SL vergrendeld op winst (+35 pts) & Trailing Stop actief."
+        )
+        self.send(msg)
+
     def notify_breakeven(self, symbol: str, new_sl: float, current_profit_pts: float):
         msg = (
             f"🔒 *[ACC #2] Breakeven Beveiliging: {symbol}*\n\n"

@@ -57,9 +57,21 @@ class TelegramAlerts:
         msg = (
             f"{icon} *Trade Closed: {symbol}*\n\n"
             f"🏷️ *Reason:* `{reason}`\n"
+            f"📦 *Aantal:* `{qty}` contracten\n"
             f"📍 *Exit Price:* `{exit_price:.2f}` (Entry: `{entry_price:.2f}`)\n"
             f"📏 *Points:* `{pts:+.2f} pts`\n"
             f"💵 *P&L:* `+{pnl_usd:.2f}`" if pnl_usd >= 0 else f"💵 *P&L:* `-${abs(pnl_usd):.2f}`"
+        )
+        self.send(msg)
+
+    def notify_partial_tp(self, symbol: str, exit_price: float, qty_closed: int, remaining_qty: int, pnl_usd: float, pts: float):
+        msg = (
+            f"💰 *GOUDEN OCHTEND TRADE: TP1 (+{pts:.1f} PTS) BEREIKT!*\n\n"
+            f"🎯 *Symbool:* `{symbol}`\n"
+            f"📦 *Deelsluiting:* `{qty_closed}` contracten verzilverd (+${pnl_usd:,.2f})\n"
+            f"📍 *Exit Koers:* `{exit_price:.2f}`\n"
+            f"🚀 *Runner Status:* `{remaining_qty}` contracten lopen door naar Max Dagwinst!\n"
+            f"🔒 *Winstbeveiliging:* SL vergrendeld op winst (+35 pts) & Trailing Stop actief."
         )
         self.send(msg)
 

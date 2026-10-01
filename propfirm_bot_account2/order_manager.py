@@ -274,7 +274,7 @@ class OrderManagerAcc2:
 
         return False
 
-    async def execute_signal(self, side: str, tag: str, current_price: float, symbol: str, spec: dict):
+    async def execute_signal(self, side: str, tag: str, current_price: float, symbol: str, spec: dict = None):
         if self.open_position:
             logger.info(f"[Acc2] Position already active ({self.open_position['side']} {self.open_position['symbol']}), skipping new signal.")
             return
@@ -283,6 +283,7 @@ class OrderManagerAcc2:
             logger.info(f"[Acc2] Trading blocked by circuit breaker: {self.cb_reason}")
             return
 
+        spec = spec or self.cfg.get("assets", {}).get(symbol, self.cfg)
         qty = spec.get("max_contracts", 5)
         sl_pts = spec.get("stoploss_pts", 25.0)
         tp_pts = spec.get("takeprofit_pts", 50.0)
@@ -320,6 +321,15 @@ class OrderManagerAcc2:
             logger.error(f"[Acc2] Failed to place order: {e}")
             return
 
+        # Determine if this trade qualifies for Morning Open Split-Exit
+        is_orb = ("orb" in tag.lower())
+        split_enabled = bool(spec.get("orb_split_exit_enabled", False))
+        is_split = is_orb and split_enabled and (qty >= 2)
+        split_tp1_pts = float(spec.get("orb_split_tp1_pts", 50.0))
+        split_tp1_qty = int(spec.get("orb_split_tp1_contracts", 3))
+        runner_trail_pts = float(spec.get("orb_runner_trailing_pts", 15.0))
+        runner_lock_pts = float(spec.get("orb_runner_lock_pts", 35.0))
+
         self.open_position = {
             "symbol": symbol,
             "side": side.upper(),
@@ -331,8 +341,18 @@ class OrderManagerAcc2:
             "peak_price": current_price,
             "breakeven_locked": False,
             "tag": tag,
-            "open_time": datetime.now(timezone.utc).isoformat()
+            "open_time": datetime.now(timezone.utc).isoformat(),
+            # Morning Open Split Exit attributes
+            "is_split_trade": is_split,
+            "split_tp1_pts": split_tp1_pts,
+            "split_tp1_qty": split_tp1_qty,
+            "partial_tp_done": False,
+            "runner_trail_pts": runner_trail_pts,
+            "runner_lock_pts": runner_lock_pts
         }
+
+        if is_split:
+            logger.info(f"[Acc2] 🌟 Morning Open Golden Trade Activated with Split Exit on {symbol}! TP1: {split_tp1_qty} contracts @ +{split_tp1_pts:.1f} pts, Runner: remaining contracts targeting Max Daily Profit with {runner_trail_pts:.1f} pt Trailing Stop.")
 
         self.alerts.notify_entry(side, symbol, current_price, qty, sl_price, tp_price, tag, point_val=point_val)
 
@@ -345,31 +365,140 @@ class OrderManagerAcc2:
         entry = pos["entry_price"]
         sl = pos["sl_price"]
         tp = pos["tp_price"]
+        pv = pos.get("point_value", 2.0)
 
         profit_pts = (current_price - entry) if side == "BUY" else (entry - current_price)
 
-        # 1. Take Profit hit
-        if (side == "BUY" and current_price >= tp) or (side == "SELL" and current_price <= tp):
-            logger.info(f"[Acc2] Take Profit HIT on {symbol}! Exit @ {current_price}")
-            await self.close_position(current_price, "take_profit")
-            return
+        # 1. Split Exit TP1 (Exclusively for Morning Open ORB Trade)
+        if pos.get("is_split_trade") and not pos.get("partial_tp_done"):
+            tp1_target = pos.get("split_tp1_pts", 50.0)
+            if profit_pts >= tp1_target:
+                close_qty = min(pos.get("split_tp1_qty", 3), pos["qty"] - 1)
+                if close_qty > 0:
+                    logger.info(f"[Acc2] 🌟 Morning Open Golden Trade: TP1 Hit (+{profit_pts:.2f} pts >= {tp1_target:.2f} pts) on {symbol}! Executing partial exit of {close_qty} contracts.")
+                    await self.partial_close_position(current_price, close_qty, "orb_split_tp1")
+                    return
 
-        # 2. Stop Loss hit
+        # 2. Morning Open Trade Runner (after TP1 is secured)
+        if pos.get("is_split_trade") and pos.get("partial_tp_done"):
+            max_daily_profit = float(self.cfg.get("max_daily_profit_usd", 900.0))
+            unrealized_runner_pnl = profit_pts * pv * pos["qty"]
+            projected_day_pnl = self.daily_pnl + unrealized_runner_pnl
+
+            # 2a. Check if Runner reaches Max Daily Profit Target!
+            if projected_day_pnl >= max_daily_profit:
+                logger.info(f"[Acc2] 🎉 MAX DAILY PROFIT TARGET HIT ON RUNNER! Projected Day PnL: ${projected_day_pnl:,.2f} >= ${max_daily_profit:,.2f} (Runner Profit: +{profit_pts:.2f} pts)!")
+                await self.close_position(current_price, "max_daily_profit_target")
+                return
+
+            # 2b. Dynamic Trailing Stop for Runner
+            runner_trail = pos.get("runner_trail_pts", 15.0)
+            if side == "BUY":
+                if current_price > pos.get("peak_price", entry):
+                    pos["peak_price"] = current_price
+                new_sl = round(pos["peak_price"] - runner_trail, 2)
+                if new_sl > pos["sl_price"]:
+                    pos["sl_price"] = new_sl
+                    logger.info(f"[Acc2] Runner Trailing SL updated for {symbol} (BUY): {new_sl:.2f} (Peak: {pos['peak_price']:.2f})")
+            else:
+                if current_price < pos.get("peak_price", entry):
+                    pos["peak_price"] = current_price
+                new_sl = round(pos["peak_price"] + runner_trail, 2)
+                if new_sl < pos["sl_price"]:
+                    pos["sl_price"] = new_sl
+                    logger.info(f"[Acc2] Runner Trailing SL updated for {symbol} (SELL): {new_sl:.2f} (Peak: {pos['peak_price']:.2f})")
+
+        # 3. Standard Take Profit (For all normal trades NOT in split runner mode)
+        if not pos.get("is_split_trade"):
+            if (side == "BUY" and current_price >= tp) or (side == "SELL" and current_price <= tp):
+                logger.info(f"[Acc2] Take Profit HIT on {symbol}! Exit @ {current_price}")
+                await self.close_position(current_price, "take_profit")
+                return
+
+        # 4. Stop Loss / Trailing Stop HIT (Applies to all trades and active runners)
         if (side == "BUY" and current_price <= sl) or (side == "SELL" and current_price >= sl):
-            reason = "breakeven_exit" if pos.get("breakeven_locked") else "stop_loss"
+            if pos.get("partial_tp_done"):
+                reason = "runner_trail_stop"
+            elif pos.get("breakeven_locked"):
+                reason = "breakeven_exit"
+            else:
+                reason = "stop_loss"
             logger.info(f"[Acc2] {reason.upper()} HIT on {symbol}! Exit @ {current_price} (SL: {sl:.2f})")
             await self.close_position(current_price, reason)
             return
 
-        # 3. Breakeven Lock (Pas naar entry zodra +30 punten winst aangetikt is)
+        # 5. Breakeven Lock (+30 pts triggers move to entry)
         spec = spec or {}
         be_trigger = float(spec.get("breakeven_trigger_pts", self.cfg.get("breakeven_trigger_pts", 30.0)))
+        be_offset = float(spec.get("breakeven_offset_pts", self.cfg.get("breakeven_offset_pts", 0.0)))
 
         if not pos.get("breakeven_locked", False) and profit_pts >= be_trigger:
             pos["breakeven_locked"] = True
-            pos["sl_price"] = entry
-            logger.info(f"[Acc2] Breakeven geactiveerd voor {symbol}! +{profit_pts:.2f} pts bereikt. Stoploss verplaatst naar Entry: {entry:.2f}")
-            self.alerts.notify_breakeven(symbol, entry, profit_pts)
+            if not pos.get("partial_tp_done"):
+                new_be_sl = round(entry + be_offset if side == "BUY" else entry - be_offset, 2)
+                pos["sl_price"] = new_be_sl
+                logger.info(f"[Acc2] Breakeven geactiveerd voor {symbol}! +{profit_pts:.2f} pts bereikt. Stoploss verplaatst naar {new_be_sl:.2f}")
+                self.alerts.notify_breakeven(symbol, new_be_sl, profit_pts)
+
+    async def partial_close_position(self, exit_price: float, qty_to_close: int, reason: str):
+        if not self.open_position:
+            return
+
+        pos = self.open_position
+        sym = pos["symbol"]
+        pv = pos["point_value"]
+
+        if not self.is_open() or not self.authorized:
+            await self.ensure_connected(max_retries=2)
+
+        close_side = "Sell" if pos["side"] == "BUY" else "Buy"
+        order_payload = {
+            "accountSpec": self.cfg["account_spec"],
+            "accountId": self.cfg["account_id"],
+            "action": close_side,
+            "symbol": sym,
+            "orderQty": qty_to_close,
+            "orderType": "Market",
+            "isAutomated": True,
+            "timeInForce": "Day"
+        }
+
+        logger.info(f"[Acc2] Sending partial close ({qty_to_close} contracts) to Tradovate: {order_payload}")
+        try:
+            res = await self.request("order/placeorder", order_payload, timeout=10.0)
+            logger.info(f"[Acc2] Partial close order response: {res}")
+        except Exception as e:
+            logger.error(f"[Acc2] Failed to place partial close order: {e}")
+
+        profit_pts = (exit_price - pos["entry_price"]) if pos["side"] == "BUY" else (pos["entry_price"] - exit_price)
+        pnl_usd = profit_pts * pv * qty_to_close
+        self.daily_pnl += pnl_usd
+
+        pos["qty"] -= qty_to_close
+        pos["partial_tp_done"] = True
+        pos["breakeven_locked"] = True
+        pos["tp1_pnl"] = pnl_usd
+        pos["peak_price"] = exit_price
+
+        # Lock in profit for the runner (e.g. at entry + 35 pts)
+        lock_pts = float(pos.get("runner_lock_pts", 35.0))
+        if pos["side"] == "BUY":
+            pos["sl_price"] = max(pos["sl_price"], round(pos["entry_price"] + lock_pts, 2))
+        else:
+            pos["sl_price"] = min(pos["sl_price"], round(pos["entry_price"] - lock_pts, 2))
+
+        logger.info(
+            f"[Acc2] TP1 Secured for {sym}: +${pnl_usd:,.2f} (+{profit_pts:.2f} pts on {qty_to_close} contracts). "
+            f"Remaining {pos['qty']} contracts runner active with locked SL @ {pos['sl_price']:.2f}!"
+        )
+
+        if hasattr(self.alerts, "notify_partial_tp"):
+            self.alerts.notify_partial_tp(sym, exit_price, qty_to_close, pos["qty"], pnl_usd, profit_pts)
+        else:
+            self.alerts.notify_exit(pos["side"], sym, pos["entry_price"], exit_price, qty_to_close, pnl_usd, "Split TP1")
+
+        # Sync balance & persist state
+        asyncio.create_task(self.sync_balance())
 
     async def close_position(self, exit_price: float, reason: str):
         if not self.open_position:
