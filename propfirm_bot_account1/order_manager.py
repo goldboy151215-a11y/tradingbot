@@ -328,11 +328,11 @@ class OrderManager:
             self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
             return True
 
-        # 2. Overall Max Loss Protection (FundedNext $1,500 max loss floor: $48,500)
-        # Buffer of $100 before hard breach
-        if total_pnl <= -(max_overall_loss - 100.0):
+        # 2. Overall Max Loss Protection (FundedNext Trailing Floor: 48,893.10 + $10 buffer = 48,903.10)
+        trailing_floor = 48903.10
+        if self.cash_balance <= trailing_floor:
             self.circuit_breaker_active = True
-            self.cb_reason = f"Max Overall Loss Beveiliging (-${abs(total_pnl):,.2f} / -${max_overall_loss:,.2f})"
+            self.cb_reason = f"Max Trailing Loss Beveiliging ($10 voor breach: ${self.cash_balance:,.2f} <= ${trailing_floor:,.2f})"
             logger.warning(f"CIRCUIT BREAKER: {self.cb_reason}")
             self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
             return True
@@ -459,6 +459,21 @@ class OrderManager:
         pv = pos.get("point_value", self.cfg.get("point_value", 2.0))
 
         profit_pts = (current_price - entry) if side == "BUY" else (entry - current_price)
+        unrealized_pnl = profit_pts * pv * pos.get("qty", 1)
+
+        # 0. Emergency Trailing Drawdown Guard: Cut trade $10 before hard prop firm breach!
+        trailing_floor = 48903.10  # Exact 10 USD cushion above 48,893.10 breach line
+        if (self.cash_balance + unrealized_pnl) <= trailing_floor or unrealized_pnl <= -210.0:
+            logger.warning(
+                f"🚨 EMERGENCY DRAWDOWN GUARD HIT: Unrealized PnL ${unrealized_pnl:,.2f}, "
+                f"Account Floor ${self.cash_balance + unrealized_pnl:,.2f} <= ${trailing_floor:,.2f}! "
+                f"Closing position IMMEDIATELY to protect the $10 safety buffer!"
+            )
+            await self.close_position(current_price, "drawdown_guard_10_usd_buffer")
+            self.circuit_breaker_active = True
+            self.cb_reason = f"Drawdown Guard Getriggerd ($10 voor harde propfirm breach: ${self.cash_balance + unrealized_pnl:,.2f})"
+            self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
+            return
 
         # 1. Split Exit TP1 (Exclusively for Morning Open ORB Trade)
         if pos.get("is_split_trade") and not pos.get("partial_tp_done"):
