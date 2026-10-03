@@ -319,13 +319,16 @@ class OrderManager:
         max_daily_loss = float(self.cfg.get("max_daily_loss_usd", 400.0))
         max_daily_profit = float(self.cfg.get("max_daily_profit_usd", 950.0))
 
+        already_active = self.circuit_breaker_active
+
         # 1. Total Target Reached! (FundedNext $2,500 Target hit)
         total_pnl = self.cash_balance - starting_bal
         if total_pnl >= target_profit:
             self.circuit_breaker_active = True
             self.cb_reason = f"🎉 PROFIT TARGET BEREIKT (+${total_pnl:,.2f} / +${target_profit:,.2f})! Challenge Gehaald!"
             logger.info(f"TARGET PASSED: {self.cb_reason}")
-            self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
+            if not already_active:
+                self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
             return True
 
         # 2. Overall Max Loss Protection (FundedNext Trailing Floor: 48,893.10 + $10 buffer = 48,903.10)
@@ -334,7 +337,8 @@ class OrderManager:
             self.circuit_breaker_active = True
             self.cb_reason = f"Max Trailing Loss Beveiliging ($10 voor breach: ${self.cash_balance:,.2f} <= ${trailing_floor:,.2f})"
             logger.warning(f"CIRCUIT BREAKER: {self.cb_reason}")
-            self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
+            if not already_active:
+                self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
             return True
 
         # 3. Max Daily Loss
@@ -342,15 +346,21 @@ class OrderManager:
             self.circuit_breaker_active = True
             self.cb_reason = f"Max Dagverlies Bereikt (-${abs(self.daily_pnl):,.2f} / -${max_daily_loss:,.2f})"
             logger.warning(f"CIRCUIT BREAKER: {self.cb_reason}")
-            self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
+            if not already_active:
+                self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
             return True
+        elif already_active and "Max Dagverlies" in getattr(self, "cb_reason", "") and self.daily_pnl > -max_daily_loss:
+            self.circuit_breaker_active = False
+            self.cb_reason = ""
+            logger.info(f"Dagelijks verlies circuit breaker gereset voor nieuwe handelsdag (PnL: ${self.daily_pnl:.2f})")
 
         # 4. 40% Consistency Cap (Max profit in 1 single day)
         if self.daily_pnl >= max_daily_profit:
             self.circuit_breaker_active = True
             self.cb_reason = f"40% Consistentie Winstcap Bereikt (+${self.daily_pnl:,.2f} / +${max_daily_profit:,.2f})"
             logger.info(f"PROFIT CAP LOCK: {self.cb_reason}")
-            self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
+            if not already_active:
+                self.alerts.notify_circuit_breaker(self.cb_reason, self.daily_pnl)
             return True
 
         return False

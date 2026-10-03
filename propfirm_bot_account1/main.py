@@ -98,6 +98,12 @@ async def _market_data_watchdog(state: BotState, cfg: dict, telegram_bot: Telegr
             s_start = cfg.get("session_start_utc", "08:00")
             s_end = cfg.get("session_end_utc", "19:50")
 
+            # CME Futures are closed on weekends (Friday 21:00 UTC through Sunday 22:00 UTC)
+            weekday = now_dt.weekday()
+            is_weekend = (weekday == 5) or (weekday == 6 and now_dt.hour < 22) or (weekday == 4 and now_dt.hour >= 21)
+            if is_weekend:
+                continue
+
             if s_start <= cur_hm < s_end:
                 now_epoch = time.time()
                 # If market has been open and no candle updated in last 15 min (900s)
