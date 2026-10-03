@@ -45,16 +45,17 @@ class weex_futures_quant(IStrategy):
 
     # High-Beta Volatile Profiles on WEEX (Support bounce tuning)
     COIN_PROFILES: Dict[str, Dict[str, float]] = {
-        "NEAR":   {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
-        "SOL":    {"vol_mult": 0.90, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
         "AVAX":   {"vol_mult": 1.05, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
+        "SOL":    {"vol_mult": 0.90, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
+        "NEAR":   {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
+        "LINK":   {"vol_mult": 0.95, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
+        "XRP":    {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
         "WIF":    {"vol_mult": 1.10, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.18},
         "FET":    {"vol_mult": 1.05, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
         "DOGE":   {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
         "APT":    {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
         "SEI":    {"vol_mult": 1.05, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
         "TAO":    {"vol_mult": 0.95, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
-        "RENDER": {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15},
     }
 
     def get_coin_profile(self, pair: str) -> Dict[str, float]:
@@ -63,12 +64,12 @@ class weex_futures_quant(IStrategy):
                 return prof
         return {"vol_mult": 1.00, "rsi_min": 40.0, "rsi_max": 58.0, "min_wick": 0.15}
 
-    # Minimal ROI Ladder - Geoptimaliseerd voor Realistische Winstneming (10x Leverage)
+    # Minimal ROI Ladder - Geoptimaliseerd voor Runners via Trailing Lock (10x Leverage)
     minimal_roi = {
-        "0": 0.28,   # Directe winstneming bij +28% ROE (+2.8% koersstijging bij 10x)
-        "20": 0.20,  # Na 20 min: +20% ROE (+2.0% koersstijging)
-        "45": 0.15,  # Na 45 min: +15% ROE (+1.5% koersstijging)
-        "90": 0.10,  # Na 1.5 uur: +10% ROE (+1.0% koersstijging)
+        "0": 0.60,    # Hard take-profit bij +60% ROE (+6.0% koersmove)
+        "60": 0.40,   # Na 1 uur: +40% ROE
+        "180": 0.25,  # Na 3 uur: +25% ROE
+        "360": 0.15,  # Na 6 uur: +15% ROE
     }
 
     trailing_stop = False
@@ -136,6 +137,13 @@ class weex_futures_quant(IStrategy):
         dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
         return dataframe
 
+    @informative("4h", "BTC/USDT:USDT")
+    def populate_indicators_btc_4h(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        """BTC Macro Bull Shield: 4H trend indicators for Bitcoin to protect against altcoin market selloffs."""
+        dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
+        dataframe["ema50"] = ta.EMA(dataframe, timeperiod=50)
+        return dataframe
+
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """15m floor bounce & support accumulation indicators."""
         dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
@@ -161,6 +169,13 @@ class weex_futures_quant(IStrategy):
         # HTF Trend Alignment (4H and 1H Bullish macro structure)
         htf_4h_bull = dataframe["close_4h"] > dataframe["ema20_4h"]
         htf_1h_bull = dataframe["close_1h"] > dataframe["ema20_1h"]
+
+        # BTC Macro Bull Shield: Alleen altcoin longs toestaan als BTC boven zijn 4H EMA20 zit
+        btc_col = [c for c in dataframe.columns if "btc" in c.lower() and "ema20" in c]
+        btc_close_col = [c for c in dataframe.columns if "btc" in c.lower() and "close" in c]
+        btc_bull = True
+        if btc_col and btc_close_col:
+            btc_bull = dataframe[btc_close_col[0]] > dataframe[btc_col[0]]
 
         # Adaptive profile for this coin
         pair = metadata.get("pair", "")
@@ -201,6 +216,7 @@ class weex_futures_quant(IStrategy):
         floor_bounce_cond = (
             htf_4h_bull &
             htf_1h_bull &
+            btc_bull &
             touched_floor &
             bounce_green &
             has_support_rejection &
@@ -234,13 +250,15 @@ class weex_futures_quant(IStrategy):
         Dynamische Trailing Stop & Flash Breakeven Lock voor 10x Leverage:
         - Vanaf +8% ROE: Flash Breakeven Lock (Stoploss naar Entry + 1.2% fee buffer) -> 100% RISICOLOOS!
         - Vanaf +16% ROE: Lock minimaal +10% ROE winst.
-        - Vanaf +25% ROE: Lock minimaal +18% ROE winst.
+        - Vanaf +25% ROE: Dynamische Trailing Lock (trail 5% onder piek, minimaal +18% gelockt).
+          Als de trade doorstoot naar +40% of +60%, rijdt de stoploss automatisch mee omhoog!
         """
         lev = trade.leverage or 10.0
 
-        # Tier 3: Lock +18% winst zodra +25% bereikt is
+        # Tier 3: Trailing Runner Lock (vanaf +25% ROE trail 5% achter piek aan, minimaal +18%)
         if current_profit >= 0.25:
-            return stoploss_from_open(0.18, current_profit, is_short=trade.is_short, leverage=lev)
+            trail_offset = max(0.18, current_profit - 0.05)
+            return stoploss_from_open(trail_offset, current_profit, is_short=trade.is_short, leverage=lev)
 
         # Tier 2: Lock +10% winst zodra +16% bereikt is
         if current_profit >= 0.16:
@@ -342,8 +360,7 @@ class weex_futures_quant(IStrategy):
         if len(open_trades) >= max_allowed:
             return False
 
-        # Anti-Peak Re-entry Guard: Prevent immediately buying back into the exact same coin
-        # within 15 minutes of taking profit/exiting on that same pump wave
+        # Anti-Whipsaw Cooldown (45 min na verlies) & Anti-Peak Guard (15 min na winst)
         try:
             if getattr(Trade, "use_db", True):
                 closed_trades = [
@@ -357,11 +374,22 @@ class weex_futures_quant(IStrategy):
                         close_dt = close_dt.replace(tzinfo=timezone.utc)
                     now_dt = current_time if current_time.tzinfo else current_time.replace(tzinfo=timezone.utc)
                     mins_since_exit = (now_dt - close_dt).total_seconds() / 60.0
+
+                    # 1. Anti-Whipsaw Cooldown: Als vorige trade verlies was, 45 min wachten om vallend mes te vermijden
+                    if (last_trade.close_profit or 0.0) < 0.0 and mins_since_exit < 45.0:
+                        logger.info(
+                            f"Anti-Whipsaw Cooldown: Skipping {pair} re-entry ({mins_since_exit:.1f}m since loss exit, min 45m required to avoid knife catching)"
+                        )
+                        return False
+
+                    # 2. Anti-Peak Guard: Na winstgevende exit minimaal 15 min wachten
                     if mins_since_exit < 15.0:
-                        logger.info(f"Anti-Peak Guard: Skipping {pair} re-entry ({mins_since_exit:.1f}m since last exit, min 15m required to avoid exhaustion trap)")
+                        logger.info(
+                            f"Anti-Peak Guard: Skipping {pair} re-entry ({mins_since_exit:.1f}m since last exit, min 15m required)"
+                        )
                         return False
         except Exception as exc:
-            logger.warning(f"Error checking Anti-Peak Guard for {pair}: {exc}")
+            logger.warning(f"Error checking Anti-Whipsaw / Anti-Peak Guard for {pair}: {exc}")
 
         return True
 
