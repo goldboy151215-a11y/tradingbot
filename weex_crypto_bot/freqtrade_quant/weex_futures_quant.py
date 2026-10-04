@@ -39,7 +39,7 @@ class weex_futures_quant(IStrategy):
     can_short = True
 
     # Protective stoploss
-    stoploss = -0.50
+    stoploss = -0.20
     use_custom_stoploss = True
 
     # Minimal ROI Ladder
@@ -170,9 +170,9 @@ class weex_futures_quant(IStrategy):
         after_fill: bool,
         **kwargs,
     ) -> Optional[float]:
-        """Lock in Breakeven (+1% fee cushion) on Shorts once in solid green (+6% ROE)."""
+        """Lock in Breakeven (+1% fee cushion) on Shorts once in solid green (+10% ROE)."""
         if trade.is_short:
-            if current_profit > 0.06:
+            if current_profit > 0.10:
                 return -0.01
         return None
 
