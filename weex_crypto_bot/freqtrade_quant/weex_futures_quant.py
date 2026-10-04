@@ -110,6 +110,12 @@ class weex_futures_quant(IStrategy):
         dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
         return dataframe
 
+    @informative("4h", "BTC/USDT:USDT")
+    def populate_indicators_btc_4h(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        """BTC Macro Bull Shield: 4H trend indicators for Bitcoin to protect against altcoin market selloffs."""
+        dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
+        return dataframe
+
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """Fast 5m scalp indicators."""
         dataframe["ema20"] = ta.EMA(dataframe, timeperiod=20)
@@ -134,11 +140,26 @@ class weex_futures_quant(IStrategy):
         htf_4h_bull = dataframe["close_4h"] > dataframe["ema20_4h"]
         htf_4h_bear = (dataframe["close_4h"] < dataframe["ema20_4h"]) & (dataframe["rsi_4h"] < 52)
 
-        # 1. LONG SIGNALS: 5m BB Breakout + Volume Surge + Healthy RSI
+        # BTC Macro Paraplu Shield: Alts (ETH/SOL/AVAX) only long when BTC 4H is Bullish
+        btc_col = [c for c in dataframe.columns if "btc" in c.lower() and "ema20" in c]
+        btc_close_col = [c for c in dataframe.columns if "btc" in c.lower() and "close" in c]
+        btc_bull = True
+        if btc_col and btc_close_col:
+            btc_bull = dataframe[btc_close_col[0]] > dataframe[btc_col[0]]
+
+        pair = metadata.get("pair", "")
+        market_shield = btc_bull if not pair.startswith("BTC") else True
+
+        # 1. LONG SIGNALS: 5m BB Breakout from Base + Volume Surge + Healthy RSI (Not Buying the Top)
+        # - Breakout: Price crosses upper band from within the band on previous candle
         breakout = (dataframe["close"] > dataframe["bb_upper"]) & (dataframe["close"].shift(1) <= dataframe["bb_upper"].shift(1))
+        # - Anti-Top Guard: Candle close must not be extended > 1.2% above band (buy the base break, not an exhausted spike)
+        not_overextended = dataframe["close"] <= (dataframe["bb_upper"] * 1.012)
+        # - Momentum sweet spot: Healthy breakout momentum without overbought exhaustion
+        rsi_long = (dataframe["rsi"] > 52) & (dataframe["rsi"] < 68)
         vol_surge = dataframe["volume"] > dataframe["vol_ma"] * 1.2
-        rsi_long = (dataframe["rsi"] > 52) & (dataframe["rsi"] < 70)
-        long_cond = breakout & vol_surge & rsi_long & htf_4h_bull
+
+        long_cond = breakout & not_overextended & vol_surge & rsi_long & htf_4h_bull & market_shield
 
         dataframe.loc[long_cond, "enter_long"] = 1
         dataframe.loc[long_cond, "enter_tag"] = "bb_breakout_long"
