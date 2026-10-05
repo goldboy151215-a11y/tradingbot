@@ -138,7 +138,7 @@ class weex_futures_quant(IStrategy):
 
         # HTF 4H Trend alignment
         htf_4h_bull = dataframe["close_4h"] > dataframe["ema20_4h"]
-        htf_4h_bear = (dataframe["close_4h"] < dataframe["ema20_4h"]) & (dataframe["rsi_4h"] < 52)
+        htf_4h_bear = (dataframe["close_4h"] < dataframe["ema50_4h"]) & (dataframe["rsi_4h"] < 48)
 
         # BTC Macro Paraplu Shield: Alts (ETH/SOL/AVAX) only long when BTC 4H is Bullish
         btc_col = [c for c in dataframe.columns if "btc" in c.lower() and "ema20" in c]
@@ -214,13 +214,13 @@ class weex_futures_quant(IStrategy):
         try:
             total_equity = self.wallets.get_total(self.config["stake_currency"])
             free_equity = self.wallets.get_free(self.config["stake_currency"])
-            stake_ratio = float(self.config.get("tradable_balance_ratio", 0.58))
+            stake_ratio = float(self.config.get("custom_stake_ratio", 0.58))
             
             open_trades_cnt = len(Trade.get_open_trades())
             if open_trades_cnt == 0:
                 target_stake = total_equity * stake_ratio
             else:
-                # When 1 trade is already open, compound on available free margin
+                # When trades are already open, compound on available free margin
                 target_stake = free_equity * stake_ratio
 
             compounded = max(min_stake or 5.0, target_stake)
@@ -246,9 +246,9 @@ class weex_futures_quant(IStrategy):
         side: str,
         **kwargs,
     ) -> bool:
-        """Confirm trade entry: strictly max_open_trades (default 2) for disciplined margin focus."""
+        """Confirm trade entry: strictly max_open_trades (default 3) for disciplined margin focus."""
         open_trades = Trade.get_open_trades()
-        max_allowed = int(self.config.get("max_open_trades", 2))
+        max_allowed = int(self.config.get("max_open_trades", 3))
         if len(open_trades) >= max_allowed:
             return False
         return True
