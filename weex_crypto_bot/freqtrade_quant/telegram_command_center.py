@@ -686,44 +686,79 @@ def handle_help_command() -> str:
 
 
 def trade_monitor_loop() -> None:
-    """Background loop that detects newly opened and closed trades in SQLite and sends instant push notifications."""
-    last_known_open_ids: set[int] = set()
-    last_known_closed_ids: set[int] = set()
+    """Background loop that detects newly opened and closed trades across Elite & Main bots in SQLite.
+    
+    Routes Elite trades to VIP/Free marketing channels + Admin.
+    Routes Main trades to Admin ONLY (never broadcast to VIP or Free channels).
+    """
+    tracked_bots = [
+        {
+            "id": "elite",
+            "name": "Elite Account",
+            "tag": "👑 [ELITE]",
+            "db_path": os.path.join(USER_DATA, "tradesv3_elite.sqlite"),
+            "send_to_vip": True,
+            "strategy_label": "5m Balanced Scalper (44/24/12)",
+        },
+        {
+            "id": "main",
+            "name": "Main Account",
+            "tag": "⚡ [MAIN]",
+            "db_path": os.path.join(USER_DATA, "tradesv3.sqlite"),
+            "send_to_vip": False,
+            "strategy_label": "Main Quant Bot",
+        },
+    ]
+
+    last_known_open_ids: dict[str, set[int]] = {b["id"]: set() for b in tracked_bots}
+    last_known_closed_ids: dict[str, set[int]] = {b["id"]: set() for b in tracked_bots}
     last_daily_recap_date: str = ""
 
-    # Initial seeding of existing IDs so we don't spam historical trades on bot restart
-    try:
-        if os.path.exists(DB_PATH):
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            for r in c.execute("SELECT id FROM trades WHERE is_open=1"):
-                last_known_open_ids.add(r[0])
-            for r in c.execute("SELECT id FROM trades WHERE is_open=0"):
-                last_known_closed_ids.add(r[0])
-            conn.close()
-    except Exception as e:
-        logger.warning(f"Trade monitor initial seed notice: {e}")
+    # Initial seeding of existing IDs for each bot
+    for bot in tracked_bots:
+        db_path = bot["db_path"]
+        bid = bot["id"]
+        try:
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                c = conn.cursor()
+                for r in c.execute("SELECT id FROM trades WHERE is_open=1"):
+                    last_known_open_ids[bid].add(r[0])
+                for r in c.execute("SELECT id FROM trades WHERE is_open=0"):
+                    last_known_closed_ids[bid].add(r[0])
+                conn.close()
+        except Exception as e:
+            logger.warning(f"Trade monitor initial seed notice for {bot['name']}: {e}")
 
-    logger.info("Realtime Trade Notifier daemon gestart.")
+    logger.info("Realtime Trade Notifier daemon gestart voor Elite & Main accounts.")
 
     while True:
         try:
-            if os.path.exists(DB_PATH):
-                conn = sqlite3.connect(DB_PATH)
+            channels = load_channels_config()
+            vip_chat = channels.get("vip_channel_id")
+            free_chat = channels.get("free_channel_id")
+            whop_link = channels.get("whop_link", "https://whop.com")
+
+            for bot in tracked_bots:
+                db_path = bot["db_path"]
+                bid = bot["id"]
+                tag = bot["tag"]
+                send_vip = bot["send_to_vip"]
+                strat_label = bot["strategy_label"]
+
+                if not os.path.exists(db_path):
+                    continue
+
+                conn = sqlite3.connect(db_path)
                 conn.row_factory = sqlite3.Row
                 c = conn.cursor()
-
-                channels = load_channels_config()
-                vip_chat = channels.get("vip_channel_id")
-                free_chat = channels.get("free_channel_id")
-                whop_link = channels.get("whop_link", "https://whop.com")
 
                 # 1. Check for newly opened trades
                 rows_open = c.execute("SELECT * FROM trades WHERE is_open=1").fetchall()
                 for r in rows_open:
                     tid = r["id"]
-                    if tid not in last_known_open_ids:
-                        last_known_open_ids.add(tid)
+                    if tid not in last_known_open_ids[bid]:
+                        last_known_open_ids[bid].add(tid)
                         pair = r["pair"]
                         side_nl = "🔴 SHORT" if r["is_short"] else "🟢 LONG"
                         side_en = "🔴 SHORT" if r["is_short"] else "🟢 LONG"
@@ -734,19 +769,20 @@ def trade_monitor_loop() -> None:
 
                         # A. Send to Private Admin Chat (Dutch)
                         msg_admin = (
-                            f"⚡ <b>NIEUWE TRADE GEOPEND (#{tid})</b>\n"
+                            f"{tag} <b>NIEUWE TRADE GEOPEND (#{tid})</b>\n"
                             f"──────────────────────────\n"
+                            f"• <b>Account:</b> {bot['name']}\n"
                             f"• <b>Munt:</b> <code>{pair}</code> ({side_nl} {lev:.0f}x)\n"
                             f"• <b>Instap Koers:</b> <code>{rate:.4f}</code>\n"
                             f"• <b>Inzet (Stake):</b> <code>${stake:.2f} USDT</code>\n"
                             f"• <b>Totale Positie:</b> <code>${stake * lev:.2f} USDT</code>\n"
-                            f"• <b>Strategie:</b> 5m Balanced Scalper (44/24/12) 🚀\n\n"
-                            f"<i>Stoploss (-50%) & Dynamische Scalp Winstladder actief.</i>"
+                            f"• <b>Strategie:</b> {strat_label} 🚀\n\n"
+                            f"<i>Stoploss & Positiebeheer actief.</i>"
                         )
                         send_message(msg_admin, target_chat_id=CHAT_ID)
 
-                        # B. Broadcast to VIP Channel (English Institutional Signal)
-                        if vip_chat:
+                        # B. Broadcast to VIP Channel (ONLY if bot is VIP eligible, e.g. Elite)
+                        if send_vip and vip_chat:
                             msg_vip = (
                                 f"{side_en} <b>NEW QUANT SIGNAL: {pair}</b>\n"
                                 f"──────────────────────────\n"
@@ -767,9 +803,9 @@ def trade_monitor_loop() -> None:
                 rows_closed = c.execute("SELECT * FROM trades WHERE is_open=0 ORDER BY id DESC LIMIT 10").fetchall()
                 for r in rows_closed:
                     tid = r["id"]
-                    if tid not in last_known_closed_ids:
-                        last_known_closed_ids.add(tid)
-                        last_known_open_ids.discard(tid)
+                    if tid not in last_known_closed_ids[bid]:
+                        last_known_closed_ids[bid].add(tid)
+                        last_known_open_ids[bid].discard(tid)
                         pair = r["pair"]
                         pnl_abs = r["close_profit_abs"] or 0.0
                         pnl_pct = (r["close_profit"] or 0.0) * 100
@@ -779,8 +815,9 @@ def trade_monitor_loop() -> None:
 
                         # A. Send to Private Admin Chat (Dutch - Full Details with USD Amounts)
                         msg_admin = (
-                            f"🎯 <b>TRADE GESLOTEN (#{tid})</b>\n"
+                            f"{tag} <b>TRADE GESLOTEN (#{tid})</b>\n"
                             f"──────────────────────────\n"
+                            f"• <b>Account:</b> {bot['name']}\n"
                             f"• <b>Munt:</b> <code>{pair}</code>\n"
                             f"• <b>Resultaat:</b> {icon} <b>{'+' if pnl_abs >= 0 else ''}${pnl_abs:.2f} USDT ({'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%)</b>\n"
                             f"• <b>Exit Reden:</b> <code>{reason}</code>\n"
@@ -793,8 +830,8 @@ def trade_monitor_loop() -> None:
                         close_rate = r["close_rate"] or 0.0
                         side_label = "SHORT" if r["is_short"] else "LONG"
 
-                        # B. Broadcast to VIP Channel (English - Transparent ROE % & Prices, NO Dollar Amounts)
-                        if vip_chat:
+                        # B. Broadcast to VIP Channel (ONLY if bot is VIP eligible, e.g. Elite)
+                        if send_vip and vip_chat:
                             msg_vip_close = (
                                 f"🎯 <b>VIP TRADE CLOSED: {pair}</b>\n"
                                 f"──────────────────────────\n"
@@ -802,39 +839,40 @@ def trade_monitor_loop() -> None:
                                 f"• <b>Entry:</b> <code>${open_rate:.4f}</code> ➔ <b>Exit:</b> <code>${close_rate:.4f}</code>\n"
                                 f"• <b>Net Result:</b> {icon} <b>{'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}% ROE</b>\n"
                                 f"• <b>Exit Reason:</b> <code>{reason}</code>\n"
-                                f"• <b>Engine:</b> 5m Balanced Scalper (44/24/12)\n"
+                                f"• <b>Engine:</b> {strat_label}\n"
                                 f"──────────────────────────\n"
                                 f"💎 <i>Transparent Quant Execution Stream</i>"
                             )
                             send_message(msg_vip_close, target_chat_id=vip_chat)
 
-                        # C. Broadcast to Free Channel ONLY if Profitable (Marketing Winner Alert - NO Entry Signals, NO Dollar Amounts)
-                        if free_chat and pnl_pct > 0:
+                        # C. Broadcast to Free Channel ONLY if Profitable and VIP eligible
+                        if send_vip and free_chat and pnl_pct > 0:
                             msg_free = (
                                 f"🚀 <b>VIP WINNER ALERT: {pair}</b>\n\n"
-                                f"Our automated 5m Quant Engine just locked in another winning trade!\n\n"
+                                f"Our automated Quant Engine just locked in another winning trade!\n\n"
                                 f"📈 <b>Net Return:</b> 🟢 <b>+{pnl_pct:.2f}% ROE</b>\n"
-                                f"⚙️ <b>Strategy:</b> 12x Isolated Balanced Scalper\n"
+                                f"⚙️ <b>Strategy:</b> 12x Isolated Quant Scalper\n"
                                 f"🛡️ <b>Risk Control:</b> Multi-Stage Profit Lock Protected\n\n"
                                 f"🔥 <b>Want every real-time trade signal with automated entry & exits?</b>\n"
                                 f"👉 <a href=\"{whop_link}\"><b>Click Here to Access the VIP Channel</b></a>"
                             )
                             send_message(msg_free, target_chat_id=free_chat)
 
-                # Check for automated Daily Opportunity Recap at 23:00 UTC
-                now_utc = datetime.now(timezone.utc)
-                today_str = now_utc.strftime("%Y-%m-%d")
-                if now_utc.hour == 23 and last_daily_recap_date != today_str:
-                    last_daily_recap_date = today_str
-                    try:
-                        daily_rep = analyze_daily_opportunity(today_str)
-                        if daily_rep.get("total_trades", 0) > 0:
-                            recap_msg = "🔔 <b>AUTOMATISCHE DAGELIJKSE RECAP & KANSEN</b>\n\n" + format_daily_opportunity_telegram(daily_rep)
-                            send_message(recap_msg, target_chat_id=CHAT_ID)
-                    except Exception as exc:
-                        logger.error(f"Error sending automatic daily recap: {exc}")
-
                 conn.close()
+
+            # Check for automated Daily Opportunity Recap at 23:00 UTC
+            now_utc = datetime.now(timezone.utc)
+            today_str = now_utc.strftime("%Y-%m-%d")
+            if now_utc.hour == 23 and last_daily_recap_date != today_str:
+                last_daily_recap_date = today_str
+                try:
+                    daily_rep = analyze_daily_opportunity(today_str)
+                    if daily_rep.get("total_trades", 0) > 0:
+                        recap_msg = "🔔 <b>AUTOMATISCHE DAGELIJKSE RECAP & KANSEN</b>\n\n" + format_daily_opportunity_telegram(daily_rep)
+                        send_message(recap_msg, target_chat_id=CHAT_ID)
+                except Exception as exc:
+                    logger.error(f"Error sending automatic daily recap: {exc}")
+
         except Exception as exc:
             logger.error(f"Error in trade_monitor_loop: {exc}")
 
@@ -958,7 +996,7 @@ def error_monitor_loop() -> None:
             if (now - last_health_check) >= 30:
                 last_health_check = now
                 api_endpoints = [
-                    ("WEEX Normal Bot (8080)", "http://127.0.0.1:8080/api/v1/ping"),
+                    # Main Bot (8080) is paused for upgrade - do not spam offline alerts
                     ("WEEX Elite Bot (8081)", "http://127.0.0.1:8081/api/v1/ping"),
                 ]
 
