@@ -28,10 +28,10 @@ DEFAULT_PATHS = [
 ]
 
 CANONICAL_MINIMAL_ROI: dict[str, float] = {
-    "0": 0.30,
-    "15": 0.22,
-    "30": 0.16,
-    "60": 0.12,
+    "0": 0.75,
+    "60": 0.45,
+    "180": 0.28,
+    "360": 0.18,
 }
 
 REQUIRED_KEYS = [
@@ -117,13 +117,13 @@ class RuntimeState:
         if self.free_usdt <= 0.0:
             self.free_usdt = self.equity_usdt
 
-        self.stake_usdt = round(float(self.equity_usdt * 0.25), 2)
-        self.leverage = min(max(float(self.leverage or 8.0), 1.0), 50.0)
+        self.stake_usdt = round(float(self.equity_usdt * 0.50), 2)
+        self.leverage = min(max(float(self.leverage or 12.0), 1.0), 50.0)
         self.margin_mode = "isolated"
         self.max_trades_per_day = max(int(self.max_trades_per_day or 50), 1)
         self.position_adjustment = False
-        self.strategy_id = "weex_futures_quant"
-        self.strategy_name = "WEEX Futures Scalper 50x"
+        self.strategy_id = "InstitutionalSweepQuant"
+        self.strategy_name = "WEEX Institutional Sweep Quant"
         self.minimal_roi = dict(CANONICAL_MINIMAL_ROI)
         self.margin_cap_pct = 0.50
 

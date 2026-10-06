@@ -260,3 +260,48 @@ class InstitutionalSweepQuant(IStrategy):
             return -(current_profit - 0.16)
 
         return None
+
+    @property
+    def protections(self):
+        return [
+            {
+                "method": "MaxDrawdown",
+                "lookback_period_candles": 96,
+                "trade_limit": 6,
+                "stop_duration_candles": 24,
+                "max_allowed_drawdown": 0.20,
+            },
+        ]
+
+    def custom_stake_amount(
+        self,
+        pair: str,
+        current_time: datetime,
+        current_rate: float,
+        proposed_stake: float,
+        min_stake: Optional[float],
+        max_stake: float,
+        leverage: float,
+        entry_tag: Optional[str],
+        side: str,
+        **kwargs,
+    ) -> float:
+        """Dynamic compounding stake sizing: scales automatically with live wallet equity."""
+        try:
+            total_equity = self.wallets.get_total(self.config["stake_currency"])
+            free_equity = self.wallets.get_free(self.config["stake_currency"])
+            stake_ratio = float(self.config.get("custom_stake_ratio", 0.58))
+            max_open = int(self.config.get("max_open_trades", 3))
+
+            target_stake = (total_equity * stake_ratio) / max_open
+
+            if min_stake and target_stake < min_stake:
+                target_stake = min_stake
+            if target_stake > free_equity * 0.95:
+                target_stake = free_equity * 0.95
+
+            return target_stake
+        except Exception as e:
+            logger.warning(f"Error in custom_stake_amount: {e}")
+            return proposed_stake
+

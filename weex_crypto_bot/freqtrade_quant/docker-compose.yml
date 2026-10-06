@@ -16,7 +16,7 @@ services:
       --db-url sqlite:////freqtrade/user_data/tradesv3.sqlite
       --config /freqtrade/user_data/config.json
       --config /freqtrade/user_data/config-private.json
-      --strategy weex_futures_quant
+      --strategy InstitutionalSweepQuant
 
   freqtrade-elite:
     build:
